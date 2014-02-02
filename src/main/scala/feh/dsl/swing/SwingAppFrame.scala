@@ -73,6 +73,8 @@ trait SwingFrameAppCreation extends FormCreation{
       def in(pos: DSLAbsolutePosition): LayoutElem = at(pos)
       def to(rel: DSLRelativePositionDirection): DSLRelativelyOf = DSLRelativelyOf(what, id, rel)
       def on(rel: DSLRelativePositionDirection): DSLRelativelyOf = to(rel)
+
+      def transform(f: BuildMeta => BuildMeta): DSLPlacing = copy(f(what))
     }
 
     protected case class DSLRelativelyOf(what: BuildMeta, id: String, dir: DSLRelativePositionDirection){
@@ -122,10 +124,14 @@ trait SwingFrameAppCreation extends FormCreation{
     }
 
     protected class PanelChooser{
+      private def unplaced[E <% UnplacedLayoutElem](e: Seq[E]) = e.toList.map(x => x: UnplacedLayoutElem)
+
       def flow[E <% UnplacedLayoutElem](alignment: FlowPanel.Alignment.type => FlowPanel.Alignment.Value)(elems: E*) =
-        DSLFlowPanelBuilder(alignment(FlowPanel.Alignment), elems.toList.map(x => x: UnplacedLayoutElem))
+        DSLFlowPanelBuilder(alignment(FlowPanel.Alignment), unplaced(elems))
       def box[E <% UnplacedLayoutElem](alignment: Orientation.type => Orientation.Value)(elems: E*) =
-        DSLBoxPanelBuilder(alignment(Orientation), elems.toList.map(x => x: UnplacedLayoutElem))
+        DSLBoxPanelBuilder(alignment(Orientation), unplaced(elems))
+      def grid[E <% UnplacedLayoutElem](rows: Int, cols: Int)(elems: E*) =
+        DSLGridPanelBuilder(rows -> cols, unplaced(elems))
       def gridBag(settings: LayoutSetting*) = GridBagMeta(settings.toList)
     }
 
@@ -265,8 +271,10 @@ trait SwingFrameAppCreation extends FormCreation{
   implicit class GridBagMetaOps(meta: GridBagMeta) extends DSLFormBuilderOps[GridBagMeta](meta)
   implicit class FlowPanelBuilderOps(builder: DSLFlowPanelBuilder) extends DSLFormBuilderOps[DSLFlowPanelBuilder](builder)
   implicit class BoxPanelBuilderOps(builder: DSLBoxPanelBuilder) extends DSLFormBuilderOps[DSLBoxPanelBuilder](builder)
+  implicit class GridPanelBuilderOps(builder: DSLGridPanelBuilder) extends DSLFormBuilderOps[DSLGridPanelBuilder](builder)
 
   implicit def buildBoxPanelMeta: DSLBoxPanelBuilder => BuildMeta = _.meta
+  implicit def buildGridPanelMeta: DSLGridPanelBuilder => BuildMeta = _.meta
 
   trait DSLPanelBuilder extends LayoutSetting with AbstractDSLBuilder{
     type Panel <: scala.swing.Panel
@@ -366,6 +374,25 @@ trait SwingFrameAppCreation extends FormCreation{
       case Orientation.Horizontal => Swing.HStrut(i)
       case Orientation.Vertical => Swing.VStrut(i)
     }
+  }
+
+  case class DSLGridPanelBuilder(size: (Int, Int),
+                                 elems: List[LayoutElem],
+                                 indent: Option[Int] = Some(10),
+                                 panelName: String = "GridPanel",
+                                 protected val effects: List[DSLGridPanelBuilder#Panel => Unit] = Nil,
+                                 protected val layout: List[Constraints => Unit] = Nil) extends DSLPanelBuilder{
+    type Panel = GridPanel
+    def panel = new GridPanel(size._1, size._2){
+      contents ++= elems.map(_.meta.component)
+      effects.foreach(_(this))
+    }
+
+    def prepend(el: LayoutElem*) = copy(elems = el.toList ++ elems)
+    def append(el: LayoutElem*) = copy(elems = elems ++ el)
+
+    def affect(effects: (DSLGridPanelBuilder#Panel => Unit) *) = copy(effects = this.effects ++ effects)
+    def layout(effects: (Constraints => Unit) *) = copy(layout = layout ++ effects)
   }
 
   // // //// // //// // //// // //// // //  Positions  // // //// // //// // //// // //// // //
@@ -470,6 +497,14 @@ trait SwingFrameAppCreation extends FormCreation{
       collectFirstDsl(layout, { case Title(title) => frame.title = title })
       collectFirstDsl(layout, { case Size(size) => frame.size = size })
 
+      /*
+      frame.contents = layout match{
+        case LayoutElem(BuildMeta(c, _), _, _) :: Nil => new GridPanel(1, 1){
+          contents += c
+        }
+        case _ => gridBag(layout)
+      }
+       */
       frame.contents = gridBag(layout)
       frame.pack()
     }

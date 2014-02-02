@@ -57,7 +57,7 @@ trait FormCreation {
 
     def text = DSLLabelBuilder(get.lifted)
     def label = text
-    def textField = new DSLTextFormBuilder(get)
+    def textField = new DSLTextFormBuilder(get.lifted).affect(_.editable = false)
     def textArea = new DSLTextAreaBuilder(get)
 
     def asText = text
@@ -75,7 +75,7 @@ trait FormCreation {
   protected class ControlComponentChooser[T](_get: => T, val set: T => Unit){
     def get: T = _get
 
-    def textForm = new DSLTextFormBuilder(get)
+    def textForm = new DSLTextFormBuilder(get.lifted)
     def textArea = new DSLTextAreaBuilder(get)
     def dropDownList = new DSLComboBoxBuilder(get)
   }
@@ -95,6 +95,11 @@ trait FormCreation {
       lazy val component: Component = _component
       lazy val `type` = _component.getClass.getName
       lazy val layout: List[(FormCreation.Constraints) => Unit] = _layout.toList
+    }
+
+    implicit class MetaWrapper(meta: BuildMeta){
+      def copy(c: Component = meta.component, layout: List[Constraints => Unit] = meta.layout) = BuildMeta(c, layout: _*)
+      def addLayout(effects: (Constraints => Unit)*) = copy(layout = meta.layout ++ effects)
     }
 
     def build(_component: Component): BuildMeta = apply(_component)
@@ -144,11 +149,15 @@ trait FormCreation {
     def updateForm()
   }
 
+  object DefaultToString{
+    def nullsafe[T]: T=> String = t => Option(t).map(_.toString) getOrElse ""
+  }
+
   protected case class DSLLabelBuilder[T] protected[swing] (protected[FormCreation] val get: () => T,
                                                              protected[FormCreation] val effects: List[DSLLabelBuilder[T]#Form => Unit] = Nil,
                                                              protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
                                                              protected[FormCreation] val color: Color = Color.black,
-                                                             protected[FormCreation] val extractString: T => String = (t: T) => t.toString)
+                                                             protected[FormCreation] val extractString: T => String = DefaultToString.nullsafe[T])
     extends DSLFormBuilder[T]
   {
     type Form = Label with UpdateInterface
@@ -173,13 +182,24 @@ trait FormCreation {
     def stringExtractor(f: T => String): DSLLabelBuilder[T] = copy(extractString = f)
   }
 
-  protected class DSLTextFormBuilder[T](get: => T) extends DSLFormBuilder[T]{
+  protected case class DSLTextFormBuilder[T](protected[FormCreation] val get: () => T,
+                                             protected[FormCreation] val effects: List[DSLTextFormBuilder[_]#Form => Unit] = Nil,
+                                             protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
+                                             protected[FormCreation] val extractString: T => String = DefaultToString.nullsafe[T]) extends DSLFormBuilder[T]{
     type Form = TextField with UpdateInterface
-    def `type` = ???
-    lazy val formMeta: FormBuildMeta = ???
+    def `type` = "Text"
 
-    def affect(effects: (Form => Unit)*): DSLTextFormBuilder[T] = ???
-    def layout(effects: (Constraints => Unit)*): DSLFormBuilder[T] = ???
+    def form = new TextField with UpdateInterface{
+      def updateForm(): Unit = {
+        text = extractString(get())
+      }
+      effects.foreach(_(this))
+    }
+
+    lazy val formMeta: FormBuildMeta = form -> layout
+
+    def affect(eff: (Form => Unit)*): DSLTextFormBuilder[T] = copy(effects = effects ++ eff)
+    def layout(effects: (Constraints => Unit)*): DSLFormBuilder[T] = copy(layout = layout ++ effects)
   }
 
   protected class DSLTextAreaBuilder[T](get: => T) extends DSLFormBuilder[T]{
