@@ -64,7 +64,7 @@ trait SwingFrameAppCreation extends FormCreation{
     protected def noId: String = null
 
     protected def html[T](t: => T)(build: T => NodeSeq): DSLLabelBuilder[T] = label(t)
-      .stringExtractor(t => surroundHtml(<html>{build(t)}</html>).toString)
+      .extract(t => surroundHtml(<html>{build(t)}</html>).toString)
     protected def html(html: NodeSeq): DSLLabelBuilder[NodeSeq] = label(surroundHtml(html))
     protected def label[T](text: => T): DSLLabelBuilder[T] = new DSLLabelBuilder[T](() => text)
 
@@ -103,6 +103,12 @@ trait SwingFrameAppCreation extends FormCreation{
 
     protected implicit def componentIdPairToUnplacedLayoutElem[C <% Component](p: (C, String)): UnplacedLayoutElem = {
       val el = LayoutElem.unplaced(BuildMeta(p._1), p._2)
+      el.register
+      el
+    }
+
+    protected implicit def dslFormBuilderIdPairToUnplacedLayoutElem[B <: DSLFormBuilder[_]](p: (B, String)): UnplacedLayoutElem = {
+      val el = LayoutElem.unplaced(p._1.component, p._2)
       el.register
       el
     }

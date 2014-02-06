@@ -10,6 +10,7 @@ import scala.collection.immutable.NumericRange
 import feh.util._
 import scala.swing.GridBagPanel.{Anchor, Fill}
 import scala.xml.NodeSeq
+import scala.concurrent.{ExecutionContext, Future}
 
 
 object FormCreation{
@@ -37,10 +38,8 @@ trait FormCreation {
   implicit def triggerComponentChooser(action: => Unit): TriggerComponentChooser = new TriggerComponentChooser(action)
 
 //  protected implicit def buildForm[T](builder: DSLFormBuilder[T]): Component = builder.build()
-  implicit def buildIntMeta: DSLFormBuilder[Int] => BuildMeta = _.formMeta
-  implicit def buildStringMeta: DSLFormBuilder[String] => BuildMeta = _.formMeta
   implicit def buildMapMeta: DSLKeyedListBuilder[_, _] => BuildMeta = _.formMeta
-  implicit def buildUnitMeta: DSLFormBuilder[Unit] => BuildMeta = _.formMeta
+  implicit def buildDSLFormBuilderMeta: DSLFormBuilder[_] => BuildMeta = _.formMeta
 
   implicit def intFormToComponent: DSLFormBuilder[Int] => Component = _.component
   implicit def stringFormToComponent: DSLFormBuilder[String] => Component = _.component
@@ -57,8 +56,9 @@ trait FormCreation {
 
     def text = DSLLabelBuilder(get.lifted)
     def label = text
-    def textField = new DSLTextFormBuilder(get.lifted).affect(_.editable = false)
-    def textArea = new DSLTextAreaBuilder(get)
+    def textField = new DSLTextFormBuilder(get.lifted)            .affect(_.editable = false)
+    def textArea = new DSLTextAreaBuilder(get.lifted)             .affect(_.editable = false)
+    def bigText = new DSLTextComponentBuilder(get.lifted)         .affect(_.editable = false)
 
     def asText = text
     def asLabel = text
@@ -76,7 +76,7 @@ trait FormCreation {
     def get: T = _get
 
     def textForm = new DSLTextFormBuilder(get.lifted)
-    def textArea = new DSLTextAreaBuilder(get)
+    def textArea = new DSLTextAreaBuilder(get.lifted)
     def dropDownList = new DSLComboBoxBuilder(get)
   }
 
@@ -145,6 +145,14 @@ trait FormCreation {
 
   }
 
+  protected trait DSLFutureStringExtraction[T, Inner] extends DSLFormBuilder[T]{
+    protected[FormCreation] def get: () => T
+    protected[FormCreation] def extractString: Either[T => Inner, (T => Future[Inner], ExecutionContext)]
+    def extractAndThen(from: T, f: Inner => Unit) = extractString
+      .left.map{ extr => f(extr(get())) }
+      .right.map{ case (extr, c) => extr(get()).map(f)(c) }
+  }
+
   protected trait UpdateInterface{
     def updateForm()
   }
@@ -153,12 +161,32 @@ trait FormCreation {
     def nullsafe[T]: T=> String = t => Option(t).map(_.toString) getOrElse ""
   }
 
+  protected case class DSLTextComponentBuilder[T] protected[swing] (protected[FormCreation] val get: () => T,
+        protected[FormCreation] val effects: List[DSLTextComponentBuilder[T]#Form => Unit] = Nil,
+        protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
+        protected[FormCreation] val extractString: Either[T => String, (T => Future[String], ExecutionContext)] = Left(DefaultToString.nullsafe[T]))
+    extends DSLFormBuilder[T] with DSLFutureStringExtraction[T, String]
+  {
+    type Form = TextComponent with UpdateInterface
+    def `type` = "TextComponent"
+
+    def form = new TextComponent with UpdateInterface{
+      def updateForm(){ extractAndThen(get(), text = _) }
+    }
+
+    lazy val formMeta: FormBuildMeta = form -> layout
+    override def affect(eff: (DSLTextComponentBuilder[T]#Form => Unit) *) = copy(effects = effects ++ eff)
+    override def layout(effects: (FormCreation.Constraints => Unit) *) = copy(layout = layout ++ effects)
+    def extract(f: T => String) = copy(extractString = Left(f))
+    def extractFuture(f: T => Future[String])(implicit c: ExecutionContext) = copy(extractString = Right(f -> c))
+  }
+
   protected case class DSLLabelBuilder[T] protected[swing] (protected[FormCreation] val get: () => T,
-                                                             protected[FormCreation] val effects: List[DSLLabelBuilder[T]#Form => Unit] = Nil,
-                                                             protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
-                                                             protected[FormCreation] val color: Color = Color.black,
-                                                             protected[FormCreation] val extractString: T => String = DefaultToString.nullsafe[T])
-    extends DSLFormBuilder[T]
+         protected[FormCreation] val effects: List[DSLLabelBuilder[T]#Form => Unit] = Nil,
+         protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
+         protected[FormCreation] val color: Color = Color.black,
+         protected[FormCreation] val extractString: Either[T => String, (T => Future[String], ExecutionContext)] = Left(DefaultToString.nullsafe[T]))
+    extends DSLFormBuilder[T] with DSLFutureStringExtraction[T, String]
   {
     type Form = Label with UpdateInterface
 
@@ -166,9 +194,7 @@ trait FormCreation {
 
     def form = new Label() with UpdateInterface{
       foreground = color
-      def updateForm(): Unit = {
-        text = extractString(get())
-      }
+      def updateForm(){ extractAndThen(get(), text = _) }
       effects.foreach(_(this))
     }
 
@@ -179,7 +205,8 @@ trait FormCreation {
 
     def color(c: Color): DSLLabelBuilder[T]  = copy(color = c)
     def withColor(c: Color): DSLLabelBuilder[T] = color(c)
-    def stringExtractor(f: T => String): DSLLabelBuilder[T] = copy(extractString = f)
+    def extract(f: T => String): DSLLabelBuilder[T] = copy(extractString = Left(f))
+    def extractFuture(f: T => Future[String])(implicit c: ExecutionContext) = copy(extractString = Right(f -> c))
   }
 
   protected case class DSLTextFormBuilder[T](protected[FormCreation] val get: () => T,
@@ -200,15 +227,26 @@ trait FormCreation {
 
     def affect(eff: (Form => Unit)*): DSLTextFormBuilder[T] = copy(effects = effects ++ eff)
     def layout(effects: (Constraints => Unit)*): DSLFormBuilder[T] = copy(layout = layout ++ effects)
+    def extract(f: T => String) = copy(extractString = f)
   }
 
-  protected class DSLTextAreaBuilder[T](get: => T) extends DSLFormBuilder[T]{
+  protected case class DSLTextAreaBuilder[T](protected[FormCreation] val get: () => T,
+                                             protected[FormCreation] val effects: List[DSLTextAreaBuilder[_]#Form => Unit] = Nil,
+                                             protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
+                                             protected[FormCreation] val extractString: T => String = DefaultToString.nullsafe[T]) extends DSLFormBuilder[T]{
     type Form = TextArea with UpdateInterface
-    def `type` = ???
-    lazy val formMeta: FormBuildMeta = ???
+    def `type` = "TextArea"
 
-    def affect(effects: (Form => Unit)*): DSLTextAreaBuilder[T] = ???
-    def layout(effects: (Constraints => Unit)*): DSLFormBuilder[T] = ???
+    def form = new TextArea with UpdateInterface{
+      def updateForm(){
+        text = extractString(get())
+      }
+      effects foreach (_(this))
+    }
+    lazy val formMeta: FormBuildMeta = form -> layout
+
+    def affect(eff: (Form => Unit)*): DSLTextAreaBuilder[T] = copy(effects = effects ++ eff)
+    def layout(effects: (Constraints => Unit)*): DSLFormBuilder[T] = copy(layout = layout ++ effects)
   }
 
   protected class DSLComboBoxBuilder[T] (get: => T) extends DSLFormBuilder[T]{
