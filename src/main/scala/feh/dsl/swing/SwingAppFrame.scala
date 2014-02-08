@@ -17,16 +17,20 @@ trait AppFrameControl{
   def stop()
 }
 
-trait SwingAppFrame extends Frame with AppFrameControl with SwingFrameAppCreation{
-  self: SwingFrameAppCreation#LayoutDSL with SwingFrameAppCreation#LayoutBuilder =>
+trait SwingAppBuildingEnvironment extends SwingFrameAppCreation{
+  trait SwingAppFrame extends Frame with AppFrameControl {
+    self: LayoutDSL with LayoutBuilder =>
 
-  override def closeOperation(): Unit = {
-    stop()
-    super.closeOperation()
+    override def closeOperation(): Unit = {
+      stop()
+      super.closeOperation()
+    }
   }
+
 }
 
-object SwingFrameAppCreation extends SwingFrameAppCreation
+
+//object SwingFrameAppCreation extends SwingFrameAppCreation
 trait SwingFrameAppCreation extends FormCreation{
   trait LayoutBuilder{
     dsl: LayoutDSL =>
@@ -40,11 +44,11 @@ trait SwingFrameAppCreation extends FormCreation{
   trait LayoutDSL extends FormCreationDSL{
     val layout: List[AbstractLayoutSetting]
 
-    val componentAccess = new RegistringComponentAccess
+      val componentAccess = new RegistringComponentAccess
 
     // upper lever settings
-    protected def split(orientation: scala.swing.Orientation.Value)(leftOrDown: List[LayoutSetting])(rightOrUp: List[LayoutSetting]) =
-      SplitLayout(orientation, leftOrDown.toList, rightOrUp.toList)
+    protected def split(orientation: scala.swing.Orientation.Value)(leftOrDown: LayoutElem, rightOrUp: LayoutElem) =
+      SplitLayout(orientation, leftOrDown, rightOrUp) _
     @deprecated protected def set(s: UpperLevelLayoutGlobalSetting): AbstractLayoutSetting = s
     protected def panel = new PanelChooser
     protected def scrollable[M <% BuildMeta](vert: BarPolicy.Value = BarPolicy.AsNeeded,
@@ -67,6 +71,7 @@ trait SwingFrameAppCreation extends FormCreation{
       .extract(t => surroundHtml(<html>{build(t)}</html>).toString)
     protected def html(html: NodeSeq): DSLLabelBuilder[NodeSeq] = label(surroundHtml(html))
     protected def label[T](text: => T): DSLLabelBuilder[T] = new DSLLabelBuilder[T](() => text)
+
 
     protected case class DSLPlacing(what: BuildMeta, id: String){
       def at(pos: DSLAbsolutePosition): LayoutElem = LayoutElem(what, id, pos).register
@@ -129,25 +134,15 @@ trait SwingFrameAppCreation extends FormCreation{
       def withoutIds: Seq[UnplacedLayoutElem] = c.map(k => (k, noId): UnplacedLayoutElem)
     }
 
-    protected class PanelChooser{
-      private def unplaced[E <% UnplacedLayoutElem](e: Seq[E]) = e.toList.map(x => x: UnplacedLayoutElem)
-
-      def flow[E <% UnplacedLayoutElem](alignment: FlowPanel.Alignment.type => FlowPanel.Alignment.Value)(elems: E*) =
-        DSLFlowPanelBuilder(alignment(FlowPanel.Alignment), unplaced(elems))
-      def box[E <% UnplacedLayoutElem](alignment: Orientation.type => Orientation.Value)(elems: E*) =
-        DSLBoxPanelBuilder(alignment(Orientation), unplaced(elems))
-      def grid[E <% UnplacedLayoutElem](rows: Int, cols: Int)(elems: E*) =
-        DSLGridPanelBuilder(rows -> cols, unplaced(elems))
-      def gridBag(settings: LayoutSetting*) = GridBagMeta(settings.toList)
-    }
-
     class RegistringComponentAccess extends ComponentAccess{
       private val componentsMap = mutable.HashMap.empty[String, LayoutElem]
       private val delayedMap = mutable.HashMap.empty[String, LayoutElem]
 
       protected[LayoutDSL] def register(elem: LayoutElem){
         elem.meta match{
-          case _ if componentsMap.contains(elem.id)  => sys.error("reregestring id " + elem.id)
+          case _ if componentsMap.contains(elem.id) =>
+            if(elem == componentsMap(elem.id)) sys.error(s"reusing id ${elem.id}")
+          // else just do not re-register
           case _ if delayedMap.contains(elem.id) =>
             delayedMap -= elem.id
             register(elem)
@@ -171,6 +166,18 @@ trait SwingFrameAppCreation extends FormCreation{
     }
   }
 
+  protected class PanelChooser{
+    private def unplaced[E <% UnplacedLayoutElem](e: Seq[E]) = e.toList.map(x => x: UnplacedLayoutElem)
+
+    def flow[E <% UnplacedLayoutElem](alignment: FlowPanel.Alignment.type => FlowPanel.Alignment.Value)(elems: E*) =
+      DSLFlowPanelBuilder(alignment(FlowPanel.Alignment), unplaced(elems))
+    def box[E <% UnplacedLayoutElem](alignment: Orientation.type => Orientation.Value)(elems: E*) =
+      DSLBoxPanelBuilder(alignment(Orientation), unplaced(elems))
+    def grid[E <% UnplacedLayoutElem](rows: Int, cols: Int)(elems: E*) =
+      DSLGridPanelBuilder(rows -> cols, unplaced(elems))
+    def gridBag(settings: LayoutSetting*)(implicit gbBuilder: GridBagComponentBuilder) = GridBagMeta(settings.toList)
+  }
+
   sealed trait AbstractLayoutSetting
   trait UpperLevelLayoutSetting extends AbstractLayoutSetting{
     def and(that: UpperLevelLayoutSetting) = this :: that :: Nil
@@ -185,9 +192,29 @@ trait SwingFrameAppCreation extends FormCreation{
 
   // // //// // //// // //// // //// // //  Upper Level Layout Settings  // // //// // //// // //// // //// // //
 
+  object SplitLayout{
+    def meta(o: Orientation.Value, l: LayoutElem, r: LayoutElem, la: List[Constraints => Unit]) = {
+      if(l.meta.component.isInstanceOf[UpdateInterface] || r.meta.component.isInstanceOf[UpdateInterface])
+        new SplitPane(o, l.meta.component, r.meta.component) with UpdateInterface{
+          def updateForm() = {
+            l.meta.component match{ case uf: UpdateInterface => uf.updateForm() }
+            r.meta.component match{ case uf: UpdateInterface => uf.updateForm() }
+          }
+        }
+      else new SplitPane(o, l.meta.component, r.meta.component)
+    } |> (BuildMeta(_, la: _*))
+
+    implicit def layoutElem(split: SplitLayout): LayoutElem =
+      LayoutElem(meta(split.orientation, split.leftOrDown, split.rightOrUp, split.layout), split._id, split.pos)
+  }
+
+  // expermental
   case class SplitLayout(orientation: scala.swing.Orientation.Value,
-                         leftOrDown: List[LayoutSetting],
-                         rightOrUp: List[LayoutSetting]) extends UpperLevelLayoutSetting
+                         leftOrDown: LayoutElem,
+                         rightOrUp: LayoutElem)
+                        (val pos: DSLPosition,
+                         val _id: String = null,
+                         val layout: List[Constraints => Unit] = Nil)
 
   case class Title(title: String) extends UpperLevelLayoutGlobalSetting
   case class Size(size: (Int, Int)) extends UpperLevelLayoutGlobalSetting
@@ -259,17 +286,33 @@ trait SwingFrameAppCreation extends FormCreation{
     def meta = BuildMeta(component, content.layout: _*)
   }
 
-  case class GridBagMeta(settings: List[LayoutSetting], layout: List[(Constraints) => Unit] = Nil)
-    extends BuildMeta with AbstractDSLBuilder
-  {
-    def component: Component = null
+  case class GridBagComponentBuilder(build: GridBagMeta => GridBagPanel)
+
+  object GridBagMeta{
+    implicit def toComponent(meta: GridBagMeta) = meta.panel
+  }
+  case class GridBagMeta(settings: List[LayoutSetting],
+                         layout: List[(Constraints) => Unit] = Nil,
+                         effects: List[GridBagPanel => Unit] = Nil
+                          )
+                        (implicit gbBuilder: GridBagComponentBuilder) extends BuildMeta with DSLPanelBuilder {
+    type Panel = GridBagPanel
     def `type` = "GridBag"
+    def panelName = `type`
+    
     def layout(effects: (Constraints => Unit)*): GridBagMeta = copy(layout = layout ++ effects)
+
+    def affect(effects: (Panel => Unit) *) = copy(effects = this.effects ++ effects)
+    def elems = ???
+    def panel = gbBuilder.build(this) $$ {p => effects.foreach(_(p))}
+    override def meta = this
+
+    def append(el: LayoutElem*) = copy(settings ++ el)
+    def prepend(el: LayoutElem*) = copy(el.toList ::: settings)
 
     override def toString: String = s"GridBagMeta($settings, $layout)"
 
-    type Comp = Null
-    def affect(effects: (GridBagMeta#Comp => Unit) *): AbstractDSLBuilder = ???
+
   }
 
   implicit class ScrollBuilderOps(builder: DSLScrollPaneBuilder) extends DSLFormBuilderOps[DSLScrollPaneBuilder](builder)
@@ -477,13 +520,11 @@ trait SwingFrameAppCreation extends FormCreation{
 
   protected def collectDsl[R](l: List[AbstractLayoutSetting], func: PartialFunction[AbstractLayoutSetting, R]): List[R] = l match{
     case Nil => Nil
-    case SplitLayout(_, leftOrDown, rightOrUp) :: tail => collectDsl(leftOrDown, func) ::: collectDsl(rightOrUp, func) ::: collectDsl(tail, func)
     case setting :: tail => func.lift(setting).map(_ :: collectDsl(tail, func)) getOrElse collectDsl(tail, func)
   }
 
   protected def collectFirstDsl[R](l: List[AbstractLayoutSetting], func: PartialFunction[AbstractLayoutSetting, R]): Option[R] = l match{
     case Nil => None
-    case SplitLayout(_, leftOrDown, rightOrUp) :: tail => collectFirstDsl(tail, func) orElse collectFirstDsl(leftOrDown, func) orElse collectFirstDsl(rightOrUp, func)
     case setting :: tail => func.lift(setting) orElse collectFirstDsl(tail, func)
   }
 
@@ -519,7 +560,14 @@ trait SwingFrameAppCreation extends FormCreation{
   }
   trait GridBagLayoutBuilder extends LayoutBuilder with AwtUtils with Layout9PositionsDSL with LayoutDSLDefaultImpl{
 
-    def gridBag(settings: List[AbstractLayoutSetting]): Component = {
+    implicit object gbBuilder extends GridBagComponentBuilder(
+      meta =>
+        gridBag(meta.settings, forceGB = true).asInstanceOf[GridBagPanel]
+    )
+
+    def gridBag(settings: List[AbstractLayoutSetting],
+                forceGB: Boolean = false,
+                forceGBPersistent: Boolean = false): Component = {
       def panel(elems: List[LayoutElem], scroll: Option[Scrollable]) = { // l: List[LayoutSetting]
         val center = elems.collect{ case e@LayoutElem(_, _, Center) => e} -> Orientation.Horizontal
 
@@ -553,12 +601,12 @@ trait SwingFrameAppCreation extends FormCreation{
         val p = new GridBagPanel{
           panel =>
 
-          def createContent(c: (Seq[LayoutElem], Orientation.Value)) = {
+          def createContent(c: (Seq[LayoutElem], Orientation.Value)): Option[BuildMeta] = {
             val (elems, orientation) = c
             if(elems.size == 0) None // do nothing
             else if(elems.size == 1) elems.head.meta match{
-              case GridBagMeta(s, l) =>
-                val meta = BuildMeta(gridBag(s), l: _*)
+              case GridBagMeta(s, l, _) =>
+                val meta = BuildMeta(gridBag(s, if(forceGBPersistent) forceGB else false, forceGBPersistent), l: _*)
                 LayoutElem(meta, elems.head.id, elems.head.pos).register
                 Some(meta)
               case m => Some(m)
@@ -625,7 +673,10 @@ trait SwingFrameAppCreation extends FormCreation{
           case (id, p) => LayoutElem(p, id, componentAccess.layoutOf(id).pos)
         }.toSeq ++ unReferenced
 
-      if(finalElems.length == 1) finalElems.head.meta.component
+      if(finalElems.length == 1 && finalElems.head.meta.component.isInstanceOf[GridBagPanel] && scrollable.isEmpty)
+        finalElems.head.meta.component
+      else if(forceGB) panel(finalElems.toList, None)
+      else if(finalElems.length == 1) finalElems.head.meta.component
       else panel(finalElems.toList, scrollable)
     }
   }

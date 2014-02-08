@@ -1,7 +1,7 @@
 package feh.dsl.swing
 
 import scala.swing._
-import scala.swing.event.{ValueChanged, ButtonClicked}
+import scala.swing.event.{SelectionChanged, ValueChanged, ButtonClicked}
 import scala.swing.Label
 import java.awt.Color
 import concurrent.duration.FiniteDuration
@@ -11,6 +11,8 @@ import feh.util._
 import scala.swing.GridBagPanel.{Anchor, Fill}
 import scala.xml.NodeSeq
 import scala.concurrent.{ExecutionContext, Future}
+import javax.swing._
+import scala.reflect.ClassTag
 
 
 object FormCreation{
@@ -24,6 +26,7 @@ trait FormCreation {
     protected def monitorFor[K, V](get: => Map[K, V])(implicit chooser:  (=> Map[K, V]) => MapMonitorComponentChooser[K, V]) = chooser(get)
     protected def monitorFor[T](get: => T)(implicit chooser:  (=> T) => MonitorComponentChooser[T]) = chooser(get)
     protected def controlFor[T](get: => T)(set: T => Unit)(implicit chooser: (=> T, T => Unit) => ControlComponentChooser[T]) = chooser(get, set)
+    protected def controlForSeq[T](get: => Seq[T], static: Boolean = false)(implicit chooser: (=> Seq[T], Boolean) => SeqControlComponentChooser[T]) = chooser(get, static)
     protected def numericControlFor[N](get: => N)(set: N => Unit) // todo: sould it exist?
                                       (implicit chooser: (=> N, N => Unit) => NumericControlComponentChooser[N], num: Numeric[N]) = chooser(get, set)
     protected def triggerFor(action: => Unit)(implicit chooser: (=> Unit) => TriggerComponentChooser) = chooser(action)
@@ -34,6 +37,7 @@ trait FormCreation {
   implicit def monitorComponentChooser[T](get: => T): MonitorComponentChooser[T] = new MonitorComponentChooser(get)
   implicit def mapMonitorComponentChooser[K, V](get: => Map[K, V]): MapMonitorComponentChooser[K, V] = new MapMonitorComponentChooser(get)
   implicit def controlComponentChooser[T](get: => T, set: T => Unit) = new ControlComponentChooser(get, set)
+  implicit def seqControlComponentChooser[T: ClassTag](get: => Seq[T], static: Boolean) = new SeqControlComponentChooser(get.lifted, static)
   implicit def numericControlComponentChooser[N: Numeric](get: => N, set: N => Unit): NumericControlComponentChooser[N] = new NumericControlComponentChooser(get, set)
   implicit def triggerComponentChooser(action: => Unit): TriggerComponentChooser = new TriggerComponentChooser(action)
 
@@ -75,9 +79,9 @@ trait FormCreation {
   protected class ControlComponentChooser[T](_get: => T, val set: T => Unit){
     def get: T = _get
 
-    def textForm = new DSLTextFormBuilder(get.lifted)
-    def textArea = new DSLTextAreaBuilder(get.lifted)
-    def dropDownList = new DSLComboBoxBuilder(get)
+    def textForm = new DSLTextFormBuilder(get.lifted) // todo: set
+    def textArea = new DSLTextAreaBuilder(get.lifted) // todo: set
+
   }
 
   protected class NumericControlComponentChooser[N: Numeric](_get: => N, override val set: N => Unit) extends ControlComponentChooser(_get, set){
@@ -88,7 +92,12 @@ trait FormCreation {
   protected class TriggerComponentChooser(action: => Unit){
     def button(label: String) = new DSLButtonBuilder(() => action, label)
     def toggle(label: String, repeatFreq: FiniteDuration) = new DSLToggleButtonBuilder(() => action, label, repeatFreq)
-  } 
+  }
+
+  protected class SeqControlComponentChooser[T: ClassTag](get: () => Seq[T], static: Boolean){
+    def dropDownList(set: T => Unit) = new DSLComboBoxBuilder(get, static, set)
+
+  }
 
   object BuildMeta{
     def apply(_component: Component, _layout: (Constraints => Unit)*): BuildMeta = new BuildMeta{
@@ -213,6 +222,7 @@ trait FormCreation {
                                              protected[FormCreation] val effects: List[DSLTextFormBuilder[_]#Form => Unit] = Nil,
                                              protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
                                              protected[FormCreation] val extractString: T => String = DefaultToString.nullsafe[T]) extends DSLFormBuilder[T]{
+                                             // todo: set value
     type Form = TextField with UpdateInterface
     def `type` = "Text"
 
@@ -234,6 +244,7 @@ trait FormCreation {
                                              protected[FormCreation] val effects: List[DSLTextAreaBuilder[_]#Form => Unit] = Nil,
                                              protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
                                              protected[FormCreation] val extractString: T => String = DefaultToString.nullsafe[T]) extends DSLFormBuilder[T]{
+                                            // todo: set value
     type Form = TextArea with UpdateInterface
     def `type` = "TextArea"
 
@@ -249,13 +260,46 @@ trait FormCreation {
     def layout(effects: (Constraints => Unit)*): DSLFormBuilder[T] = copy(layout = layout ++ effects)
   }
 
-  protected class DSLComboBoxBuilder[T] (get: => T) extends DSLFormBuilder[T]{
-    type Form = ComboBox[T] with UpdateInterface
-    def `type` = ???
-    lazy val formMeta: FormBuildMeta = ???
+  protected case class DSLComboBoxBuilder[T : ClassTag](protected[FormCreation] val get: () => Seq[T],
+                                                        protected[FormCreation] val static: Boolean,
+                                                        protected[FormCreation] val selected: T => Unit,
+                                                        protected[FormCreation] val effects: List[DSLComboBoxBuilder[T]#Form => Unit] = Nil,
+                                                        protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
+                                                        protected[FormCreation] val renderer: ListView.Renderer[T] = null, // if no renderer is defined `extractString` is used to build one
+                                                        protected[FormCreation] val extractString: T => String = DefaultToString.nullsafe[T]) extends DSLFormBuilder[T]{
+    builder =>
 
-    def affect(effects: (Form => Unit)*): DSLComboBoxBuilder[T] = ???
-    def layout(effects: (Constraints => Unit)*): DSLFormBuilder[T] = ???
+    type Form = ComboBox[T] with UpdateInterface
+    def `type` = "ComboBox"
+    
+    def form = new ComboBox[T](if(static) get() else Nil) with UpdateInterface{
+      private var last: Seq[T] = null
+//      lazy val underlying = new JComboBox[T]() with SuperMixin
+//      override lazy val peer = underlying.asInstanceOf[JComboBox[Any]]
+
+      def updateForm() = if(!static) {
+        val g = get()
+        if(last != null && last != g){
+          last = g
+          peer.asInstanceOf[JComboBox[T]].setModel(new DefaultComboBoxModel[T](g.asInstanceOf[Seq[AnyRef with T]].toArray))
+        }
+      }
+
+      Option(builder.renderer)
+        .map(renderer = _)
+        .getOrElse { renderer = ListView.Renderer(extractString) }
+
+      listenTo(selection)
+      reactions += {
+        case SelectionChanged(_) => selected(selection.item)
+      }
+    }
+    lazy val formMeta: FormBuildMeta = form -> layout
+
+    def withRenderer(vr: ListView.Renderer[T]) = copy(renderer = vr)
+
+    def affect(eff: (Form => Unit)*): DSLComboBoxBuilder[T] = copy(effects = effects ++ eff)
+    def layout(effects: (Constraints => Unit)*): DSLComboBoxBuilder[T] = copy(layout = layout ++ effects)
   }
 
   protected class DSLSpinnerBuilder[N: Numeric](get: => N) extends DSLFormBuilder[N]{
@@ -461,4 +505,5 @@ trait FormCreation {
   implicit class ButtonDSLFormBuilderOps(builder: DSLButtonBuilder) extends DSLFormBuilderOps[DSLButtonBuilder](builder)
   implicit class LabelDSLFormBuilderOps[T](builder: DSLLabelBuilder[T]) extends DSLFormBuilderOps[DSLLabelBuilder[T]](builder)
   implicit class SliderDSLFormBuilderOps[N: Numeric](builder: DSLSliderBuilder[N]) extends DSLFormBuilderOps[DSLSliderBuilder[N]](builder)
+  implicit class ComboBoxDSLFormBuilderOps[T: ClassTag](builder: DSLComboBoxBuilder[T]) extends DSLFormBuilderOps[DSLComboBoxBuilder[T]](builder)
 }
