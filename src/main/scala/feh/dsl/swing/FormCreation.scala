@@ -58,9 +58,11 @@ trait FormCreation {
   protected class MonitorComponentChooser[T](_get: => T){
     def get = _get
 
-    def text = DSLLabelBuilder(get.lifted)
-    def label = text
-    def textField = new DSLTextFormBuilder(get.lifted)            .affect(_.editable = false)
+    implicit def tBuilder: String => T = _ => null.asInstanceOf[T]
+
+    def text = DSLLabelBuilder(get.lifted, static = false)
+    def label = DSLLabelBuilder(get.lifted, static = true)
+    def textField = new DSLTextFormBuilder(get.lifted, null)      .affect(_.editable = false)
     def textArea = new DSLTextAreaBuilder(get.lifted)             .affect(_.editable = false)
     def bigText = new DSLTextComponentBuilder(get.lifted)         .affect(_.editable = false)
 
@@ -79,7 +81,7 @@ trait FormCreation {
   protected class ControlComponentChooser[T](_get: => T, val set: T => Unit){
     def get: T = _get
 
-    def textForm = new DSLTextFormBuilder(get.lifted) // todo: set
+    def textForm(implicit tBuilder: String => T) = new DSLTextFormBuilder(get.lifted, set)
     def textArea = new DSLTextAreaBuilder(get.lifted) // todo: set
 
   }
@@ -191,6 +193,7 @@ trait FormCreation {
   }
 
   protected case class DSLLabelBuilder[T] protected[swing] (protected[FormCreation] val get: () => T,
+         protected[FormCreation] val static: Boolean,
          protected[FormCreation] val effects: List[DSLLabelBuilder[T]#Form => Unit] = Nil,
          protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
          protected[FormCreation] val color: Color = Color.black,
@@ -201,9 +204,11 @@ trait FormCreation {
 
     def `type` = "Label"
 
-    def form = new Label() with UpdateInterface{
+    def form = new Label with UpdateInterface{
       foreground = color
-      def updateForm(){ extractAndThen(get(), text = _) }
+      if(static) extractAndThen(get(), text = _)
+      def updateForm() = if(!static) { extractAndThen(get(), text = _) }
+
       effects.foreach(_(this))
     }
 
@@ -219,21 +224,33 @@ trait FormCreation {
   }
 
   protected case class DSLTextFormBuilder[T](protected[FormCreation] val get: () => T,
+                                             protected[FormCreation] val set: T => Unit,
                                              protected[FormCreation] val effects: List[DSLTextFormBuilder[_]#Form => Unit] = Nil,
                                              protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
-                                             protected[FormCreation] val extractString: T => String = DefaultToString.nullsafe[T]) extends DSLFormBuilder[T]{
+                                             protected[FormCreation] val static: Boolean = false,
+                                             protected[FormCreation] val extractString: T => String = DefaultToString.nullsafe[T])
+                                            (implicit tBuilder: String => T) extends DSLFormBuilder[T]{
                                              // todo: set value
     type Form = TextField with UpdateInterface
     def `type` = "Text"
 
-    def form = new TextField with UpdateInterface{
-      def updateForm(): Unit = {
+    def form = new TextField(if(static) extractString(get()) else "") with UpdateInterface{
+      def updateForm(): Unit = if(!static){
         text = extractString(get())
       }
       effects.foreach(_(this))
+
+      Option(set).foreach{ s =>
+        listenTo(this)
+        reactions += {
+          case ValueChanged(_) => s(text)
+        }
+      }
     }
 
     lazy val formMeta: FormBuildMeta = form -> layout
+
+    def swapStatic = copy(static = !static)
 
     def affect(eff: (Form => Unit)*): DSLTextFormBuilder[T] = copy(effects = effects ++ eff)
     def layout(effects: (Constraints => Unit)*): DSLFormBuilder[T] = copy(layout = layout ++ effects)

@@ -70,7 +70,7 @@ trait SwingFrameAppCreation extends FormCreation{
     protected def html[T](t: => T)(build: T => NodeSeq): DSLLabelBuilder[T] = label(t)
       .extract(t => surroundHtml(<html>{build(t)}</html>).toString)
     protected def html(html: NodeSeq): DSLLabelBuilder[NodeSeq] = label(surroundHtml(html))
-    protected def label[T](text: => T): DSLLabelBuilder[T] = new DSLLabelBuilder[T](() => text)
+    protected def label[T](text: => T): DSLLabelBuilder[T] = new DSLLabelBuilder[T](() => text, static = true)
 
 
     protected case class DSLPlacing(what: BuildMeta, id: String){
