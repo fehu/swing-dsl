@@ -1,21 +1,25 @@
 package feh.util.swing.completion
 
-import scala.swing.{Component, EditorPane}
+import scala.swing.{ScrollPane, ListView, Component, EditorPane}
 import scala.swing.event._
 import feh.util._
-import feh.util.swing.completion.CompletionEditorPane.{CompletionPopup, ListeningKeysPressed, AbstractCompletionEditorPane}
+import feh.util.swing.completion.CompletionListEditorPane.{CompletionPopup, ListeningKeysPressed, AbstractCompletionEditorPane}
 import javax.swing.{Popup => JPopup}
 import feh.util.swing.{Keys, Popup}
 import scala.collection.mutable
 import scala.swing.event.KeyPressed
-import scala.Some
+import scala.swing.Swing._
 import scala.swing.event.MouseClicked
+import scala.swing.ScrollPane.BarPolicy
+import scala.swing.ListView.IntervalMode
+import javax.swing.text.{SimpleAttributeSet, Utilities}
+import feh.util.swing.completion.CompletionListEditorPane.CompletionPopup.ScalaCompletion
 
 trait TextCompletion {
   def complete(context: String, pos: Int, verbosity: Option[Int]): List[String] 
 }
 
-object CompletionEditorPane{
+object CompletionListEditorPane{
   trait AbstractCompletionEditorPane extends EditorPane{
     type Verbosity = Option[Int]
 
@@ -59,11 +63,10 @@ object CompletionEditorPane{
 
       pane.reactions += {
         case ev if clearPopupsPF.isDefinedAt(ev) =>
-          println("clear!")
-          if(clearPopupsPF(ev)) clearPopup()
+          if(clearPopupsPF.lift(ev) getOrElse false) clearPopup()
       }
 
-      private var currentVerbosity: Option[Int] = None
+      protected var currentVerbosity: Option[Int] = None
       def completing = currentPopup.isDefined
 
       def popupYOffset: Int = 3
@@ -110,24 +113,70 @@ object CompletionEditorPane{
         new scala.swing.Label(labelHtml.toString())
       }
     }
+
+    trait ScrollingList extends CompletionPopupBase{
+      pane: AbstractCompletionEditorPane =>
+
+      def maxCompletionListHeight = 400
+
+      def onCompletionSelection(sel: String, pos: Int) = {
+        val drop = pane.text.charAt(pos-1) match {
+          case '.' | ' ' => 0
+          case _ => pos - Utilities.getWordStart(pane.peer, pos)
+        }
+        pane.peer.getDocument $$ (_.remove(pos-drop, drop)) $$ (_.insertString(pos-drop, sel, new SimpleAttributeSet()))
+        clearPopup()
+      }
+
+      protected val caretPosState = new ScopedState(-1)
+
+
+      override def popup(position: Int, canComplete: List[String], verbosity: Verbosity) =
+        caretPosState.doWith(position){ super.popup(position, canComplete, verbosity) }
+
+      def popupContents(canComplete: List[String]) = new ScrollPane(
+          new ListView(canComplete){
+            lv =>
+
+            lv.selection.intervalMode = IntervalMode.Single
+
+            listenTo(lv.selection)
+
+            val pos = caretPosState.get.ensuring(_ != -1)
+            reactions += {
+              case ListSelectionChanged(`lv`, rng, live) =>
+                onCompletionSelection(lv.listData(rng.head), pos)
+            }
+          }
+        ){
+          horizontalScrollBarPolicy = BarPolicy.Never
+          maximumSize = 1000 -> maxCompletionListHeight
+        }
+    }
+
+    trait ScalaCompletion extends CompletionPopupBase{
+      pane: AbstractCompletionEditorPane =>
+
+      protected val continueCompletionKeys = Keys.alphanumericSet + Key.Period + Key.BackSpace
+
+      def completionPopupExtraPF: PartialFunction[Event, Boolean] = {
+        case MouseClicked(_, p, mod, n, _) => true
+        case KeyPressed(_, k, 0, _) =>
+          if(completing && continueCompletionKeys.contains(k)){
+            complete(currentVerbosity, popup(caret.dot, _, currentVerbosity))
+            false
+          }
+          else true
+      }
+      
+      override def clearPopupsPF = completionPopupExtraPF orElse super.clearPopupsPF
+    }
   }
 }
 
 
-object ScalaCompletionEditorPane{
-  protected val continueCompletionKeys = Keys.alphanumericSet + Key.Period 
-
-//  case MouseClicked(_, p, mod, n, _) => true
-//  case KeyPressed(_, k, 0, _) =>
-//  if(completing && continueCompletionKeys.contains(k)){
-//    complete(currentVerbosity, popup(caret.dot, _, currentVerbosity))
-//    false
-//  }}
-}
-
-class CompletionEditorPane(val completion: TextCompletion)
-  extends AbstractCompletionEditorPane with CompletionPopup.Label with ListeningKeysPressed
-//  with CtrlSpaceCompletion with CtrlShiftSpaceCompletion
+class CompletionListEditorPane(val completion: TextCompletion)
+  extends AbstractCompletionEditorPane with CompletionPopup.ScrollingList with ListeningKeysPressed with ScalaCompletion
 {
   private val CtrlShiftModifier = Key.Modifier.Control + Key.Modifier.Shift
   completeOnKeyPress(Map(
