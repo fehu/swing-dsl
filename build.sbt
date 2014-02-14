@@ -1,6 +1,6 @@
 import Build.Dependencies._
 
-name := "swing-dsl"
+name := "swing" // -dsl
 
 version := "1.1"
 

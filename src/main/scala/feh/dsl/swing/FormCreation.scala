@@ -30,6 +30,7 @@ trait FormCreation {
     protected def numericControlFor[N](get: => N)(set: N => Unit) // todo: sould it exist?
                                       (implicit chooser: (=> N, N => Unit) => NumericControlComponentChooser[N], num: Numeric[N]) = chooser(get, set)
     protected def triggerFor(action: => Unit)(implicit chooser: (=> Unit) => TriggerComponentChooser) = chooser(action)
+    protected def toggleFor(on: => Unit, off: => Unit)(implicit chooser: (=> Unit, => Unit) => ToggleComponentChooser) = chooser(on, off)
 
     def updateForms()
   }
@@ -40,17 +41,13 @@ trait FormCreation {
   implicit def seqControlComponentChooser[T: ClassTag](get: => Seq[T], static: Boolean) = new SeqControlComponentChooser(get.lifted, static)
   implicit def numericControlComponentChooser[N: Numeric](get: => N, set: N => Unit): NumericControlComponentChooser[N] = new NumericControlComponentChooser(get, set)
   implicit def triggerComponentChooser(action: => Unit): TriggerComponentChooser = new TriggerComponentChooser(action)
+  implicit def toggleComponentChooser(on: => Unit, off: => Unit): ToggleComponentChooser = new ToggleComponentChooser(on, off)
 
 //  protected implicit def buildForm[T](builder: DSLFormBuilder[T]): Component = builder.build()
   implicit def buildMapMeta: DSLKeyedListBuilder[_, _] => BuildMeta = _.formMeta
   implicit def buildDSLFormBuilderMeta: DSLFormBuilder[_] => BuildMeta = _.formMeta
 
-  implicit def intFormToComponent: DSLFormBuilder[Int] => Component = _.component
-  implicit def stringFormToComponent: DSLFormBuilder[String] => Component = _.component
-  implicit def nodeSeqFormToComponent: DSLFormBuilder[NodeSeq] => Component = _.component
-  implicit def mapFormToComponent: DSLKeyedListBuilder[_, _] => Component = _.form
-  implicit def unitFormToComponent: DSLButtonBuilder => Component = _.component
-  implicit def doubleSliderToComponent: DSLSliderBuilder[Double] => Slider = _.form
+  implicit def abstractDSLBuilderToComponent: AbstractDSLBuilder => Component = _.component
 
   implicit def componentToMeta(c: Component): BuildMeta = BuildMeta(c)
 
@@ -90,10 +87,13 @@ trait FormCreation {
     def spinner = new DSLSpinnerBuilder(get) 
     def slider(range: NumericRange[N]) = new DSLSliderBuilder(() => get, set, range)
   }
+
+  protected class ToggleComponentChooser(on: => Unit, off: => Unit){
+    def toggle(label: String) = new DSLToggleButtonBuilder(on.lifted, off.lifted, label)
+  }
   
   protected class TriggerComponentChooser(action: => Unit){
     def button(label: String) = new DSLButtonBuilder(() => action, label)
-    def toggle(label: String, repeatFreq: FiniteDuration) = new DSLToggleButtonBuilder(() => action, label, repeatFreq)
   }
 
   protected class SeqControlComponentChooser[T: ClassTag](get: () => Seq[T], static: Boolean){
@@ -461,9 +461,9 @@ trait FormCreation {
     def layout(effects: (Constraints => Unit)*) = copy(layout = layout ++ effects)
   }
   
-  protected case class DSLToggleButtonBuilder(protected[FormCreation] val action: () => Unit,
+  protected case class DSLToggleButtonBuilder(protected[FormCreation] val on: () => Unit,
+                                              protected[FormCreation] val off: () => Unit,
                                               protected[FormCreation] val label: String,
-                                              protected[FormCreation] val repeatFreq: FiniteDuration,
                                               protected[FormCreation] val effects: List[DSLToggleButtonBuilder#Form => Unit] = Nil,
                                               protected[FormCreation] val layout: List[Constraints => Unit] = Nil)
     extends DSLFormBuilder[Unit]
@@ -471,9 +471,16 @@ trait FormCreation {
     type Form = ToggleButton with UpdateInterface
     def `type` = "ToggleButton"
 
-    lazy val formMeta: FormBuildMeta =  new ToggleButton with UpdateInterface{
+    lazy val formMeta: FormBuildMeta =  new ToggleButton(label) with UpdateInterface{
+      toggle =>
+
       def updateForm(): Unit = {
         text = label
+      }
+
+      listenTo(toggle)
+      reactions += {
+        case ButtonClicked(`toggle`) => if(toggle.selected) on() else off()
       }
       effects.foreach(_(this))
     } -> layout

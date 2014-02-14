@@ -11,6 +11,7 @@ import scala.xml.NodeSeq
 import javax.swing.Box.Filler
 import Swing._
 import feh.dsl.swing.FormCreation.Constraints
+import feh.util.PrintIndents.Param
 
 trait AppFrameControl{
   def start()
@@ -47,8 +48,8 @@ trait SwingFrameAppCreation extends FormCreation{
       val componentAccess = new RegistringComponentAccess
 
     // upper lever settings
-    protected def split(orientation: scala.swing.Orientation.Value)(leftOrDown: LayoutElem, rightOrUp: LayoutElem) =
-      SplitLayout(orientation, leftOrDown, rightOrUp) _
+    protected def split(orientation: scala.swing.Orientation.type => scala.swing.Orientation.Value)(leftOrDown: LayoutElem, rightOrUp: LayoutElem) =
+      SplitLayout(orientation(scala.swing.Orientation), leftOrDown, rightOrUp)
     @deprecated protected def set(s: UpperLevelLayoutGlobalSetting): AbstractLayoutSetting = s
     protected def panel = new PanelChooser
     protected def scrollable[M <% BuildMeta](vert: BarPolicy.Value = BarPolicy.AsNeeded,
@@ -176,6 +177,7 @@ trait SwingFrameAppCreation extends FormCreation{
     def grid[E <% UnplacedLayoutElem](rows: Int, cols: Int)(elems: E*) =
       DSLGridPanelBuilder(rows -> cols, unplaced(elems))
     def gridBag(settings: LayoutSetting*)(implicit gbBuilder: GridBagComponentBuilder) = GridBagMeta(settings.toList)
+    def apply[E <% UnplacedLayoutElem](el: E) = DSLSimplePanelBuilder(el)
   }
 
   sealed trait AbstractLayoutSetting
@@ -204,17 +206,25 @@ trait SwingFrameAppCreation extends FormCreation{
       else new SplitPane(o, l.meta.component, r.meta.component)
     } |> (BuildMeta(_, la: _*))
 
-    implicit def layoutElem(split: SplitLayout): LayoutElem =
-      LayoutElem(meta(split.orientation, split.leftOrDown, split.rightOrUp, split.layout), split._id, split.pos)
   }
 
-  // expermental
   case class SplitLayout(orientation: scala.swing.Orientation.Value,
                          leftOrDown: LayoutElem,
-                         rightOrUp: LayoutElem)
-                        (val pos: DSLPosition,
-                         val _id: String = null,
-                         val layout: List[Constraints => Unit] = Nil)
+                         rightOrUp: LayoutElem,
+                         layout: List[Constraints => Unit] = Nil,
+                         effects: List[SplitPane => Unit] = Nil
+                          )
+                         extends LayoutSetting with AbstractDSLBuilder
+  {
+    type Comp = SplitPane
+    def component = new SplitPane(orientation, leftOrDown.meta.component, rightOrUp.meta.component) with UpdateInterface{
+      val updateHooks = List(leftComponent, rightComponent).collect{ case upd: UpdateInterface => upd.updateForm.lifted }
+      def updateForm() =  updateHooks.foreach(_())
+    }
+
+    def affect(effects: (SplitLayout#Comp => Unit) *) = copy(effects = this.effects ++ effects)
+    def layout(effects: (Constraints => Unit) *) = copy(layout = layout ++ effects)
+  }
 
   case class Title(title: String) extends UpperLevelLayoutGlobalSetting
   case class Size(size: (Int, Int)) extends UpperLevelLayoutGlobalSetting
@@ -364,8 +374,6 @@ trait SwingFrameAppCreation extends FormCreation{
     def layout(effects: (Constraints => Unit) *) = copy(layout = layout ++ effects)
   }
 
-  implicit def boxPanelMetaToComponent: DSLBoxPanelBuilder => Component = _.panel
-
   case class DSLBoxPanelBuilder(alignment: Orientation.Value,
                             elems: List[LayoutElem],
                             indent: Option[Int] = Some(10),
@@ -442,6 +450,24 @@ trait SwingFrameAppCreation extends FormCreation{
 
     def affect(effects: (DSLGridPanelBuilder#Panel => Unit) *) = copy(effects = this.effects ++ effects)
     def layout(effects: (Constraints => Unit) *) = copy(layout = layout ++ effects)
+  }
+
+  case class DSLSimplePanelBuilder(elem: LayoutElem,
+                                   panelName: String = "Panel",
+                                   protected val effects: List[DSLGridPanelBuilder#Panel => Unit] = Nil,
+                                   protected val layout: List[Constraints => Unit] = Nil) extends DSLPanelBuilder{
+    type Panel = scala.swing.Panel
+    def elems = List(elem)
+
+    def panel = new scala.swing.Panel{
+      peer.add(elem.meta.component.peer)
+    }
+
+    def append(el: LayoutElem*) = ???
+    def prepend(el: LayoutElem*) = ???
+
+    def affect(effects: (Panel => Unit) *) = copy(effects = this.effects ++ effects)
+    def layout(effects: (Constraints => Unit) *) = copy(layout = this.layout ++ effects)
   }
 
   // // //// // //// // //// // //// // //  Positions  // // //// // //// // //// // //// // //
@@ -565,9 +591,40 @@ trait SwingFrameAppCreation extends FormCreation{
         gridBag(meta.settings, forceGB = true).asInstanceOf[GridBagPanel]
     )
 
+    object SettingsPrinter extends PrintIndents{
+      private def print(s: List[AbstractLayoutSetting])(implicit p: Param): Unit = s match {
+        case GridBagMeta(st, _, _) :: tail =>
+          printlni("GridBagMeta(")
+          nextDepth{
+            print(st)
+          }
+          printlni(if(tail.isEmpty) ")" else "),")
+        case LayoutElem(BuildMeta(c, _), id, pos) :: tail =>
+          printlni("LayoutElem(")
+          nextDepth{
+            printlni(s"id=$id")
+            printlni(s"pos=$pos")
+            printlni(s"component=$c")
+          }
+          printlni(if(tail.isEmpty) ")" else "),")
+        case elem => printlni(elem.toString())
+      }
+
+      def asString(s: List[AbstractLayoutSetting]): String = {
+        implicit val p = newBuilder(4)
+        print(s)
+        p.mkString
+      }
+    }
+
     def gridBag(settings: List[AbstractLayoutSetting],
                 forceGB: Boolean = false,
                 forceGBPersistent: Boolean = false): Component = {
+
+//      println("building gridBag: ")
+//      println(SettingsPrinter.asString(settings))
+//      println("===")
+
       def panel(elems: List[LayoutElem], scroll: Option[Scrollable]) = { // l: List[LayoutSetting]
         val center = elems.collect{ case e@LayoutElem(_, _, Center) => e} -> Orientation.Horizontal
 
@@ -646,6 +703,8 @@ trait SwingFrameAppCreation extends FormCreation{
         } getOrElse p
       }
 
+      // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // // //
+
       val scrollable = settings.collectFirst{ // search scrollable on top level
         case sc: Scrollable => sc
       }
@@ -668,16 +727,22 @@ trait SwingFrameAppCreation extends FormCreation{
         case (centerId, elems) => centerId -> panel(center(centerId) :: elems.map(e => e.copy(pos = relativeToAbsolute(e.pos))), None) // todo
       }.toMap
       val unReferenced = (absoluteMap -- panelsMap.keys).map(_._2)
+      val builderComponents = settings.collect{
+        case b: AbstractDSLBuilder => b.component
+      }
+      // todo: all this is very shady
       val finalElems =
         panelsMap.map{
           case (id, p) => LayoutElem(p, id, componentAccess.layoutOf(id).pos)
         }.toSeq ++ unReferenced
-
-      if(finalElems.length == 1 && finalElems.head.meta.component.isInstanceOf[GridBagPanel] && scrollable.isEmpty)
-        finalElems.head.meta.component
-      else if(forceGB) panel(finalElems.toList, None)
-      else if(finalElems.length == 1) finalElems.head.meta.component
-      else panel(finalElems.toList, scrollable)
+      val finalComponents = finalElems.map(_.meta.component) ++ builderComponents
+      val res =
+        if(finalComponents.length == 1 && finalComponents.head.isInstanceOf[GridBagPanel] && scrollable.isEmpty)
+          finalComponents.head
+        else if(forceGB) panel(finalElems.toList, None)
+        else if(finalComponents.length == 1) finalComponents.head
+        else panel(finalElems.toList, scrollable)
+      res
     }
   }
 }
