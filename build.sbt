@@ -4,6 +4,6 @@ name := "swing" // -dsl
 
 version := "1.1"
 
-scalaVersion := Build.ScalaVersion
+libraryDependencies <+= scalaVersion(scalaSwing)
 
-libraryDependencies ++= Seq(scalaSwing, feh.util)
+libraryDependencies ++= Seq(feh.util)
