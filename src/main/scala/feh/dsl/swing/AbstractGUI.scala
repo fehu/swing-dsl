@@ -3,6 +3,7 @@ package feh.dsl.swing
 import scala.swing.event.Event
 import scala.swing.Component
 
+/*
 trait AbstractGUI extends SwingFrameAppCreation with SwingAppBuildingEnvironment{
 
   trait GuiFrame extends SwingAppFrame with LayoutDSL with LayoutBuilder
@@ -68,4 +69,4 @@ trait AbstractGUI extends SwingFrameAppCreation with SwingAppBuildingEnvironment
     type GridBagBuilder = GridBagMeta
     type BoxPanelBuilder = DSLBoxPanelBuilder
   }
-}
+}*/

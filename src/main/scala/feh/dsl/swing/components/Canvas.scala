@@ -1,4 +1,4 @@
-package feh.dsl.swing.swing
+package feh.dsl.swing.components
 
 import scala.swing.Component
 import javax.swing.JPanel
