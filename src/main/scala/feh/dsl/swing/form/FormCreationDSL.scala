@@ -4,7 +4,7 @@ import scala.swing.GridBagPanel
 import scala.xml.NodeSeq
 
 
-package object FormCreationDSL extends FormCreationChoosers{
+object FormCreationDSL extends FormCreationChoosers{
   type Constraints = GridBagPanel#Constraints
 
   class MonitorCreation{

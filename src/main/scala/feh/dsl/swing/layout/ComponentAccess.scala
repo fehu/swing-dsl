@@ -1,20 +1,18 @@
-package feh.dsl.swing
+package feh.dsl.swing.layout
 
 import scala.swing.Component
-import feh.dsl.swing.LayoutDSL.{AbstractLayoutSetting, LayoutElem}
-import feh.dsl.swing.form.FormCreationDSL._
+import feh.dsl.swing.layout.LayoutDSL.{BuildMeta, AbstractLayoutSetting, LayoutElem}
 
 trait ComponentAccess{
-  def apply(id: String): Component = get(id).get
-  def get(id: String): Option[Component]
+  def apply(id: String): BuildMeta = get(id).get
+  def get(id: String): Option[BuildMeta]
 
   def layoutOf(id: String): LayoutElem = getLayoutOf(id).get
   def getLayoutOf(id: String): Option[LayoutElem]
 
-  def id[C <% Component](c: C): String = getId(c).get
-  def getId[C <% Component](c: C): Option[String]
-
   def all: Seq[LayoutElem]
+
+  def id(meta: BuildMeta): Option[String]
 
   def collect[R](f: PartialFunction[LayoutElem, R]): Seq[R] = all.collect(f)
 
@@ -25,6 +23,7 @@ trait ComponentAccess{
 
 trait RegistringComponentAccess extends ComponentAccess{
   def register(elem: LayoutElem)
+  def remove(elem: LayoutElem)
 }
 
 trait ComponentAccessBuilder{

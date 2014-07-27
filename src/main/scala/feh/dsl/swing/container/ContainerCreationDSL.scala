@@ -2,7 +2,7 @@ package feh.dsl.swing.container
 
 import feh.dsl.swing.form.FormCreationDSL._
 import scala.swing.ScrollPane.BarPolicy
-import feh.dsl.swing.LayoutDSL.{LayoutSetting, UnplacedLayoutElem, LayoutElem}
+import feh.dsl.swing.layout.LayoutDSL.{BuildMeta, LayoutSetting, UnplacedLayoutElem, LayoutElem}
 import scala.swing.{Orientation, FlowPanel}
 
 object ContainerCreationDSL{

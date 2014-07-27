@@ -5,43 +5,19 @@ import scala.collection.immutable.NumericRange
 import scala.reflect.ClassTag
 import scala.concurrent.{ExecutionContext, Future}
 import feh.util._
+import feh.dsl.swing.layout.LayoutDSL.{BuildMetaType, BuildMeta}
 
 
 trait FormCreationMeta {
   type Constraints
 
-  abstract class BuildMetaType(val name: String) {
-    override def toString = name
-  }
   case object FormBuildMetaTpe extends BuildMetaType("Form")
-
-  sealed trait BuildMeta{
-    def tpe: BuildMetaType
-    
-    def buildComponent: Component
-    def component: String
-
-    def name = s"$tpe:$component"
-    override def toString: String = s"BuildMeta($name)"
-  }
-
-  object BuildMeta{
-    def apply(`type`: BuildMetaType, name: String, build: => Component): BuildMeta = new BuildMeta{
-      def tpe = `type`
-      def buildComponent = build
-      def component = name
-    }
 
 //    implicit class MetaWrapper(meta: BuildMeta){
 //      def copy(c: Component = meta.component, layout: List[Constraints => Unit] = meta.layout) = BuildMeta(c, layout: _*)
 //      def addLayout(effects: (Constraints => Unit)*) = copy(layout = meta.layout ++ effects)
 //    }
 
-    def build(`type`: BuildMetaType, name: String, build: => Component) = apply(`type`, name, build)
-
-    def unapply(meta: BuildMeta): Option[(BuildMetaType, String, Lifted[Component])] =
-      Some(meta.tpe, meta.component, meta.buildComponent.lift)
-  }
 }
 
 trait FormCreationDSLBuilders extends FormCreationMeta{
@@ -69,7 +45,7 @@ trait FormCreationDSLBuilders extends FormCreationMeta{
     builder =>
 
     type Form <: Component with UpdateInterface
-    type Params
+//    type Params
     def formName: String
 
     def static: Boolean
@@ -92,12 +68,8 @@ trait FormCreationDSLBuilders extends FormCreationMeta{
 
 
   trait FormCreationDSLBuilderConfig{
-    type Label[T] <: DSLFormBuilder[T] {
-      def extract(f: T => String): Label[T]
-    }
-    type Text[T] <: DSLFormBuilder[T] {
-      def extract(f: T => String): Label[T]
-    }
+    type Label[T] <: DSLFormBuilder[T]
+    type Text[T] <: DSLFormBuilder[T]
     type TextArea[T] <: DSLFormBuilder[T]
     type TextComponent[T] <: DSLFormBuilder[T]
     type Spinner[T] <: DSLFormBuilder[T]

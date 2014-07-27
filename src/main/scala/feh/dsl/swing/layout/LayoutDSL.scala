@@ -1,16 +1,9 @@
-package feh.dsl.swing
+package feh.dsl.swing.layout
 
-import scala.swing.ScrollPane.BarPolicy
-import scala.xml.NodeSeq
 import scala.swing._
-import scala.collection.mutable
 import feh.dsl.swing.form.FormCreationDSL._
-import java.util.UUID
 import feh.util._
-import javax.swing.Box.Filler
-import scala.swing.Swing._
-import feh.dsl.swing.util.AwtUtils
-import feh.dsl.swing.form.FormCreationDSL
+import scala.Some
 
 
 object LayoutDSL{
@@ -50,9 +43,39 @@ object LayoutDSL{
 
   // // //// // //// // //// // //// // //  Layout Settings  // // //// // //// // //// // //// // //
 
-  class LayoutElem private (val meta: BuildMeta, val id: String, val pos: DSLPosition) extends LayoutSetting{
+  sealed trait BuildMeta{
+    def tpe: BuildMetaType
+
+    def buildComponent: Component
+    def component: String
+
+    def name = s"$tpe:$component"
+    override def toString: String = s"BuildMeta($name)"
+  }
+
+  abstract class BuildMetaType(val name: String) {
+    override def toString = name
+  }
+
+  object BuildMeta{
+    def apply(`type`: BuildMetaType, name: String, build: => Component): BuildMeta = new BuildMeta{
+      def tpe = `type`
+      def buildComponent = build
+      def component = name
+    }
+    def build(`type`: BuildMetaType, name: String, build: => Component) = apply(`type`, name, build)
+
+    def unapply(meta: BuildMeta): Option[(BuildMetaType, String, Lifted[Component])] =
+      Some(meta.tpe, meta.component, meta.buildComponent.lift)
+  }
+
+  case class LElem[+P <: DSLPlacing](elem: LayoutElem) extends LayoutElem(elem.meta, elem.id, elem.pos)
+
+  class LayoutElem protected[layout] (val meta: BuildMeta, val id: String, val pos: DSLPosition) extends LayoutSetting{
     override def toString: String = s"LayoutElem($id, $pos, $meta)"
     def copy(meta: BuildMeta = this.meta, id: String = this.id, pos: DSLPosition = this.pos) = LayoutElem(meta, id, pos)
+
+    def wrap[P <: DSLPlacing] = LElem[P](this)
   }
   object LayoutElem{
     def apply(meta: BuildMeta, id: String, pos: DSLPosition): LayoutElem =
@@ -75,24 +98,49 @@ object LayoutDSL{
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   trait DSLPlacing{
-    def at(pos: DSLAbsolutePosition): LayoutElem
-    def in(pos: DSLAbsolutePosition): LayoutElem
-    def to(rel: DSLRelativePositionDirection): DSLRelativelyOf
-    def on(rel: DSLRelativePositionDirection): DSLRelativelyOf
+    type Abs <: DSLAbsolutePosition
+    type Dir <: DSLRelativePositionDirection
 
-    def transform(f: BuildMeta => BuildMeta): DSLPlacing
+    def at(pos: Abs): LayoutElem
+    def in(pos: Abs): LayoutElem
+    def to(rel: Dir): DSLRelativelyOf
+    def on(rel: Dir): DSLRelativelyOf
   }
 
   trait DSLRelativelyOf{
     def of(rel: String): LayoutElem
-    def of[C <% Component](c: C): LayoutElem
+    def of(meta: BuildMeta): LayoutElem
 
     def from(rel: String): LayoutElem
-    def from[C <% Component](c: C): LayoutElem
+    def from(meta: BuildMeta): LayoutElem
+  }
+  
+  trait Placable[+T]{
+    def meta: BuildMeta
+    def id: Option[String]
+  }
+
+  trait Layout{
+    def placings: Seq[LayoutElem]
+    def components: ComponentAccess
   }
 }
 
 import LayoutDSL._
+
+trait LayoutDSL{
+  type L <: Layout
+  type Placing <: DSLPlacing
+
+  def place[P](p: Placable[P]): Placing
+
+  def layout(pl: LElem[Placing]*): L
+}
+
+trait LayoutBuilder[-L <: Layout, +R <: Component]{
+  def build(layout: L): R
+}
+
 /*
 
 trait LayoutDSL extends FormCreationDSL{
