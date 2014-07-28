@@ -7,17 +7,20 @@ import scala.xml.NodeSeq
 object FormCreationDSL extends FormCreationChoosers{
   type Constraints = GridBagPanel#Constraints
 
-  class MonitorCreation{
+  abstract class MonitorCreation[Config <: FormCreationDSLBuilderConfig]{
+    type Chooser[T] <: MonitorComponentChooser[T, Config]
+    type MChooser[K, V] <: MapMonitorComponentChooser[K, V, Config]
+
     def apply[T](get: => T)
-                (implicit chooser:  (=> T) => MonitorComponentChooser[T]) = chooser(get)
+                (implicit chooser:  (=> T) => Chooser[T]): Chooser[T] = chooser(get)
 
     def apply[K, V](get: => Map[K, V])
-                   (implicit chooser:  (=> Map[K, V]) => MapMonitorComponentChooser[K, V]) = chooser(get)
+                   (implicit chooser:  (=> Map[K, V]) => MChooser[K, V]): MChooser[K, V] = chooser(get)
   }
 
-  class ControlCreation{
+  class ControlCreation[Config <: FormCreationDSLBuilderConfig]{
     def apply[T](get: => T)(set: T => Unit)
-                (implicit chooser: (=> T, T => Unit) => ControlComponentChooser[T]) = chooser(get, set)
+                (implicit chooser: (=> T, T => Unit) => ControlComponentChooser[T, Config]) = chooser(get, set)
 
     /** 
      * 
@@ -29,24 +32,28 @@ object FormCreationDSL extends FormCreationChoosers{
      * @return
      */
     def seq[T](get: => Seq[T], static: Boolean = false)
-              (implicit chooser: (=> Seq[T], Boolean) => SeqControlComponentChooser[T]) = chooser(get, static)
+              (implicit chooser: (=> Seq[T], Boolean) => SeqControlComponentChooser[T, Config]) = chooser(get, static)
     
     def num[N](get: => N)(set: N => Unit)
-              (implicit chooser: (=> N, N => Unit) => NumericControlComponentChooser[N], num: Numeric[N]) = chooser(get, set)
+              (implicit chooser: (=> N, N => Unit) => NumericControlComponentChooser[N, Config], num: Numeric[N]) = chooser(get, set)
   }
 
-  class ActionCreation{
-    def trigger(action: => Unit)(implicit chooser: (=> Unit) => TriggerComponentChooser) = chooser(action)
-    def toggle(on: => Unit, off: => Unit)(implicit chooser: (=> Unit, => Unit) => ToggleComponentChooser) = chooser(on, off)
+  class ActionCreation[Config <: FormCreationDSLBuilderConfig]{
+    def trigger(action: => Unit)
+               (implicit chooser: (=> Unit) => TriggerComponentChooser[Config]) = chooser(action)
+    def toggle(on: => Unit, off: => Unit)
+              (implicit chooser: (=> Unit, => Unit) => ToggleComponentChooser[Config]) = chooser(on, off)
   }
 
 }
 import FormCreationDSL._
 
   trait FormCreationDSL{
-    val monitorFor = new MonitorCreation
-    val controlFor = new ControlCreation
-    val action = new ActionCreation
+    type FormConfig <: FormCreationDSLBuilderConfig
+
+    val monitorFor: MonitorCreation[FormConfig]
+    val controlFor: ControlCreation[FormConfig]
+    val action: ActionCreation[FormConfig]
 
     def updateForms()
 }
@@ -55,14 +62,18 @@ import FormCreationDSL._
 trait TextCreationDSLHelper extends DSLComponentChooser{
   self: FormCreationDSL =>
 
-  def html[T](t: => T)(build: T => NodeSeq)(implicit chooser:  (=> T) => MonitorComponentChooser[T]): formsCfg.Label[T] =
-    label(t).extract(t => surroundHtml(<html>{build(t)}</html>).toString())
-  def html(html: NodeSeq)(implicit chooser:  (=> NodeSeq) => MonitorComponentChooser[NodeSeq]): formsCfg.Label[NodeSeq] =
-    label(surroundHtml(html))
-  def label[T](text: => T)(implicit chooser:  (=> T) => MonitorComponentChooser[T]): formsCfg.Label[T] =
-    monitorFor(text).label.static(set = true).asInstanceOf
+  type FormConfig <: FormCreationDSLBuilderConfig
 
-  private def surroundHtml(in: NodeSeq) = in match{
+  def html[T](t: => T)(build: T => NodeSeq)
+             (implicit chooser:  (=> T) => MonitorComponentChooser[T, FormConfig]): formsCfg.Label[T]
+  def label[T](text: => T)
+              (implicit chooser:  (=> T) => MonitorComponentChooser[T, FormConfig]): formsCfg.Label[T]
+
+  def html(html: NodeSeq)(implicit chooser:  (=> NodeSeq) => MonitorComponentChooser[NodeSeq, FormConfig]): formsCfg.Label[NodeSeq] =
+    label(surroundHtml(html))
+
+
+  protected def surroundHtml(in: NodeSeq) = in match{
     case <html>{_*}</html> => in
     case _ => <html>{in}</html>
   }

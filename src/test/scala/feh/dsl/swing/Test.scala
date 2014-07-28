@@ -1,16 +1,12 @@
 package feh.dsl.swing
 
 
-class Test extends layout.Grid9 with form.DSL{
+object Test extends layout.Grid9 with form.DSL with App{
 
-  val l1 = label("Label 1")
-
-  def l1_ = dslFormBuilderIsPlacable(l1 -> "label")
-
-  def p1 = place(l1_) in theCenter
-
-  layout(
-    p1
+  def l = layout(
+    place(label("Label 1") -> noId) in theCenter,
+    place( monitorFor("text 1").text -> "text1" ) in theWest
   )
 
+  println(l)
 }

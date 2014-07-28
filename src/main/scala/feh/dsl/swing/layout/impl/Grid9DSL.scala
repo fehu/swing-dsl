@@ -62,4 +62,6 @@ trait Grid9DSL extends LayoutDSL with Grid9DSLPositions with DSLComponentRegiste
   def layout(pl: LElem[Placing]*): L = Grid9DSL.Layout(pl.map(_.elem), regComp)
   def place[P](p: Placable[P]): Placing = new Grid9DSL.Placing(p)(regComp)
 
+  /** element won't be registered */
+  def noId = null
 }

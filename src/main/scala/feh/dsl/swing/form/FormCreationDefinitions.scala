@@ -49,13 +49,11 @@ trait FormCreationDSLBuilders extends FormCreationMeta{
     def formName: String
 
     def static: Boolean
-    def static(set: Boolean): Builder
+    def static(set: Boolean): DSLFormBuilder[T]
 
     type Comp = Form
 
     def meta = BuildMeta(FormBuildMetaTpe, formName, build)
-
-    override def affect(effects: (Comp => Unit)*): Builder
   }
 
   trait DSLFutureStringExtraction[T, Inner] extends DSLFormBuilder[T]{
@@ -89,14 +87,16 @@ trait FormCreationChoosers extends FormCreationDSLBuilders{
     protected val formsCfg: FormCreationDSLBuilderConfig
   }
 
-  trait MonitorComponentChooser[T] extends DSLComponentChooser{
+  trait MonitorComponentChooser[T, Config <: FormCreationDSLBuilderConfig] extends DSLComponentChooser{
+    protected val formsCfg: Config
+
     def text: formsCfg.Label[T]
     /** unlike [[text]], [[label]] content loads only at form creation
       */
-    def label: formsCfg.Label[T]
-    def textField: formsCfg.Text[T]
-    def textArea: formsCfg.TextArea[T]
-    def bigText: formsCfg.TextComponent[T]
+    def label: Config#Label[T]
+    def textField: Config#Text[T]
+    def textArea: Config#TextArea[T]
+    def bigText: Config#TextComponent[T]
 
     def asText = text
     def asLabel = text
@@ -104,35 +104,35 @@ trait FormCreationChoosers extends FormCreationDSLBuilders{
     def asTextArea = textArea
   }
 
-  trait MapMonitorComponentChooser[K, V] extends MonitorComponentChooser[Map[K, V]]{
-    def list(implicit order: Ordering[K]): formsCfg.List[Map[K, V]]
+  trait MapMonitorComponentChooser[K, V, Config <: FormCreationDSLBuilderConfig] extends MonitorComponentChooser[Map[K, V], Config]{
+    def list(implicit order: Ordering[K]): Config#List[Map[K, V]]
 
     def asList(implicit order: Ordering[K]) = list
   }
 
-  trait ControlComponentChooser[T] extends DSLComponentChooser{
-    def textForm(implicit tBuilder: String => T): formsCfg.Text[T]
-    def textArea(implicit tBuilder: String => T): formsCfg.TextArea[T]
+  trait ControlComponentChooser[T, Config <: FormCreationDSLBuilderConfig] extends DSLComponentChooser{
+    def textForm(implicit tBuilder: String => T): Config#Text[T]
+    def textArea(implicit tBuilder: String => T): Config#TextArea[T]
   }
 
-  trait NumericControlComponentChooser[N] extends ControlComponentChooser[N]{
+  trait NumericControlComponentChooser[N, Config <: FormCreationDSLBuilderConfig] extends ControlComponentChooser[N, Config]{
     implicit def num: Numeric[N]
 
-    def spinner: formsCfg.Spinner[N]
-    def slider(range: NumericRange[N]): formsCfg.Slider[N]
+    def spinner: Config#Spinner[N]
+    def slider(range: NumericRange[N]): Config#Slider[N]
   }
 
-  trait SeqControlComponentChooser[T] extends DSLComponentChooser{
+  trait SeqControlComponentChooser[T, Config <: FormCreationDSLBuilderConfig] extends DSLComponentChooser{
     implicit def ctag: ClassTag[T]
 
-    def dropDownList(set: T => Unit): formsCfg.ComboBox[T]
+    def dropDownList(set: T => Unit): Config#ComboBox[T]
   }
 
-  trait ToggleComponentChooser extends DSLComponentChooser{
-    def toggle(label: String): formsCfg.ToggleButton
+  trait ToggleComponentChooser[Config <: FormCreationDSLBuilderConfig] extends DSLComponentChooser{
+    def toggle(label: String): Config#ToggleButton
   }
 
-  trait TriggerComponentChooser extends DSLComponentChooser{
-    def button(label: String): formsCfg.Button
+  trait TriggerComponentChooser[Config <: FormCreationDSLBuilderConfig] extends DSLComponentChooser{
+    def button(label: String): Config#Button
   }
 }

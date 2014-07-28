@@ -6,8 +6,10 @@ import FormCreationDSL._
 import scala.swing.{TextField, Label}
 import scala.concurrent.{ExecutionContext, Future}
 import feh.dsl.swing.layout.LayoutDSL.{BuildMeta, Placable}
+import scala.xml.NodeSeq
 
-trait Default extends FormCreationDSL with TextCreationDSLHelper with DefaultTextFormCreationDSLBuilders{
+trait Default extends FormCreationDSL with TextCreationDSLHelper with TextFormCreationDefaults{
+  type FormConfig = cfg.type
   protected val formsCfg = cfg
 
   def updateForms(): Unit = ???
@@ -17,10 +19,24 @@ trait Default extends FormCreationDSL with TextCreationDSLHelper with DefaultTex
     def id = Option(p._2)
   }
 
+
+  val monitorFor = new MonitorCreation[FormConfig] {
+    type Chooser[T] = MonitorComponentChooser[T, FormConfig]
+    type MChooser[K, V] = MapMonitorComponentChooser[K, V, FormConfig]
+  }
+  val action = new ActionCreation[FormConfig]
+  val controlFor = new ControlCreation[FormConfig]
+
+  def html[T](t: => T)(build: T => NodeSeq)(implicit chooser:  (=> T) => MonitorComponentChooser[T, FormConfig]): FormConfig#Label[T] =
+    label(t).extractSync(t => surroundHtml(<html>{build(t)}</html>).toString())
+
+  def label[T](text: => T)(implicit chooser:  (=> T) => MonitorComponentChooser[T, FormConfig]): FormConfig#Label[T] =
+    monitorFor(text).label.static(set = true)
+
 }
 
 
-trait DefaultTextFormCreationDSLBuilders{
+trait TextFormCreationDefaults extends DefaultTextFormCreationDSLBuilders{
   // // // // // // // // // // // // // // // // //
   // // // // // // // configs  // // // // // // //
   // // // // // // // // // // // // // // // // //
@@ -39,78 +55,29 @@ trait DefaultTextFormCreationDSLBuilders{
   }
 
   // // // // // // // // // // // // // // // // //
-  // // // // // // // builders // // // // // // //
-  // // // // // // // // // // // // // // // // //
-
-  case class DSLLabelBuilder[T] protected[form] (
-       get: () => T,
-       static: Boolean,
-       extractString: Either[(T) => String, ((T) => Future[String], ExecutionContext)] = Default.extractStringSync[T],
-       effects: List[DSLLabelBuilder[T]#Form => Unit] = Nil)
-    extends DSLFormBuilder[T] with DSLFutureStringExtraction[T, String]
-  {
-    type Form = Label with UpdateInterface
-    protected type Builder = DSLLabelBuilder[T]
-    def formName = "Label"
-
-    def static(set: Boolean): Builder = copy(static = set)
-    def affect(effects: (Comp => Unit)*): Builder = copy(effects = this.effects ++ effects)
-
-    def build: Form = new Label with UpdateInterface{
-      if(static) extractAndThen(get(), text = _)
-      def updateForm() = if(!static) { extractAndThen(get(), text = _) }
-
-      effects.foreach(_(this))
-    }
-
-  }
-
-  case class DSLTextBuilder[T] protected[form] (get: () => T,
-                                                static: Boolean,
-                                                extractString: Either[(T) => String, ((T) => Future[String], ExecutionContext)],
-                                                effects: List[DSLTextBuilder[T]#Form => Unit] = Nil)
-    extends DSLFormBuilder[T] with DSLFutureStringExtraction[T, String]
-  {
-    type Form = TextField with UpdateInterface
-    protected type Builder = DSLTextBuilder[T]
-    def formName: String = "TextField"
-
-    def static(set: Boolean): Builder = copy(static = set)
-    def affect(effects: (Comp => Unit)*): Builder = copy(effects = this.effects ++ effects)
-
-    def build: Form = new TextField() with UpdateInterface{
-      if(static) extractAndThen(get(), text = _)
-      def updateForm() = if(!static) { extractAndThen(get(), text = _) }
-
-      effects.foreach(_(this))
-    }
-  }
-
-
-  // // // // // // // // // // // // // // // // //
   // // // // // // // choosers // // // // // // //
   // // // // // // // // // // // // // // // // //
 
-  implicit def monitorComponentChooser[T](v: => T): MonitorComponentChooser[T] = new MonitorComponentChooser[T]{
+  implicit def monitorComponentChooser[T](v: => T) = new MonitorComponentChooser[T, cfg.type]{
+    type Config = cfg.type
     protected val formsCfg = cfg
 
-    def text: formsCfg.Label[T] = DSLLabelBuilder(v.lifted, static = false)
+    def text: Config#Label[T] = DSLLabelBuilder(v.lifted, static = false)
 
     /** unlike [[text]], [[label]] content loads only at form creation */
-    def label: formsCfg.Label[T] = DSLLabelBuilder(v.lifted, static = true)
+    def label: Config#Label[T] = DSLLabelBuilder(v.lifted, static = true)
 
 
 
-    def textField: formsCfg.Text[T] = ???
+    def textField: Config#Text[T] = DSLTextBuilder(v.lifted, static = false)
 
-    def bigText: formsCfg.TextComponent[T] = ???
+    def bigText: Config#TextComponent[T] = ???
 
-    def textArea: formsCfg.TextArea[T] = ???
+    def textArea: Config#TextArea[T] = ???
   }
 }
 
 object Default{
-
   def extractStringSync[T] = Left((_: T).toString)
 
 }
