@@ -3,7 +3,8 @@ package feh.dsl.swing.layout.impl
 import feh.util._
 import feh.dsl.swing.layout.LayoutDSL._
 import feh.dsl.swing.layout.{LayoutDSL, RegistringComponentAccess}
-import scala.swing.Component
+import scala.swing.{Frame, Component}
+import feh.dsl.swing.AppFrameControl
 
 abstract class GenericPlacing[P](val placable: Placable[P])(implicit compReg: RegistringComponentAccess)
   extends LayoutDSL.DSLPlacing
@@ -29,4 +30,26 @@ abstract class GenericPlacing[P](val placable: Placable[P])(implicit compReg: Re
   private def bld(pos: DSLPosition) = LayoutElem(placable.meta, placable.id.orNull, pos)
     .$$(compReg.register _).pipe(_.wrap[Placing])
 
+}
+
+trait FramePlacing extends LayoutDSL{
+  def frame[P](p: Placable[P]): Frame = new Frame{
+    contents = p.meta.buildComponent
+  }
+}
+
+trait PlacableImplicits{
+  type Id = String
+
+  implicit def metaPairIsPlacable[M <% BuildMeta](p: (M, Id)) = new Placable[Any] {
+    def meta = p._1
+    def id = Option(p._2)
+  }
+
+  implicit def layoutHasBuildMeta(lt: Layout) = lt.meta
+}
+
+trait LayoutDSLBase extends LayoutDSL with DSLComponentRegister with FramePlacing with PlacableImplicits{
+  /** element won't be registered */
+  def noId: Id = null
 }

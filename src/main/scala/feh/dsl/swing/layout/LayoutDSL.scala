@@ -4,6 +4,7 @@ import scala.swing._
 import feh.dsl.swing.form.FormCreationDSL._
 import feh.util._
 import scala.Some
+import feh.dsl.swing.AppFrameControl
 
 
 object LayoutDSL{
@@ -58,10 +59,10 @@ object LayoutDSL{
   }
 
   object BuildMeta{
-    def apply(`type`: BuildMetaType, name: String, build: => Component): BuildMeta = new BuildMeta{
+    def apply(`type`: BuildMetaType, nme: String, build: => Component): BuildMeta = new BuildMeta{
       def tpe = `type`
       def buildComponent = build
-      def component = name
+      def component = nme
     }
     def build(`type`: BuildMetaType, name: String, build: => Component) = apply(`type`, name, build)
 
@@ -93,7 +94,12 @@ object LayoutDSL{
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  case class LayoutMeta(build: BuildMeta, layout: List[Constraints => Unit])
+  trait LayoutMeta extends BuildMeta{
+    def tpe: LayoutMetaTpe
+    def component: String = ???
+  }
+
+  case class GridBagLayoutMeta(build: BuildMeta, layout: List[Constraints => Unit])
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -123,6 +129,7 @@ object LayoutDSL{
   trait Layout{
     def placings: Seq[LayoutElem]
     def components: ComponentAccess
+    def meta: BuildMeta
   }
 }
 
@@ -134,11 +141,13 @@ trait LayoutDSL{
 
   def place[P](p: Placable[P]): Placing
 
-  def layout(pl: LElem[Placing]*): L
+  def layout[B <: LayoutBuilder[Placing]](pl: LElem[Placing]*)(implicit builder: B): L
+
+  def frame[P](p: Placable[P]): Frame
 }
 
-trait LayoutBuilder[-L <: Layout, +R <: Component]{
-  def build(layout: L): R
+trait LayoutBuilder[Placing <: DSLPlacing]{
+  def build(elems: Seq[LElem[Placing]]): LayoutMeta
 }
 
 /*

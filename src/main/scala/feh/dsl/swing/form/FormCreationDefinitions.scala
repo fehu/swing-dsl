@@ -5,13 +5,14 @@ import scala.collection.immutable.NumericRange
 import scala.reflect.ClassTag
 import scala.concurrent.{ExecutionContext, Future}
 import feh.util._
-import feh.dsl.swing.layout.LayoutDSL.{BuildMetaType, BuildMeta}
+import feh.dsl.swing.layout.LayoutDSL.{Layout, BuildMetaType, BuildMeta}
 
 
 trait FormCreationMeta {
   type Constraints
 
   case object FormBuildMetaTpe extends BuildMetaType("Form")
+  case class LayoutMetaTpe(layout: Class[Layout]) extends BuildMetaType(layout.getSimpleName)
 
 //    implicit class MetaWrapper(meta: BuildMeta){
 //      def copy(c: Component = meta.component, layout: List[Constraints => Unit] = meta.layout) = BuildMeta(c, layout: _*)
@@ -32,8 +33,6 @@ trait FormCreationDSLBuilders extends FormCreationMeta{
     def meta: BuildMeta
 
     def affect(effects: (Comp => Unit)*): Builder
-//    @deprecated("should not be here, it has to do only with LayoutDSL")
-//    def layout(effects: (Constraints => Unit)*): Builder
   }
 
   trait UpdateInterface{
@@ -41,7 +40,7 @@ trait FormCreationDSLBuilders extends FormCreationMeta{
   }
 
 
-  trait DSLFormBuilder[T] extends AbstractDSLBuilder{
+  trait DSLFormBuilder[+T] extends AbstractDSLBuilder{
     builder =>
 
     type Form <: Component with UpdateInterface

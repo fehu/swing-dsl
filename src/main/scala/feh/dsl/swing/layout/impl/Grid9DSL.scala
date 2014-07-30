@@ -1,7 +1,8 @@
 package feh.dsl.swing.layout.impl
 
-import feh.dsl.swing.layout.{RegistringComponentAccess, ComponentAccess, LayoutDSL}
+import feh.dsl.swing.layout.{LayoutBuilder, RegistringComponentAccess, ComponentAccess, LayoutDSL}
 import feh.dsl.swing.layout.LayoutDSL._
+import feh.dsl.swing.AppFrameControl
 
 object Grid9DSL {
 
@@ -14,7 +15,9 @@ object Grid9DSL {
     type Dir = Grid9DSLPositions#RelativeDirection
   }
 
-  case class Layout(placings: Seq[LayoutElem], components: ComponentAccess) extends LayoutDSL.Layout
+  case class Layout(placings: Seq[LayoutElem], components: ComponentAccess, meta: LayoutMeta) extends LayoutDSL.Layout{
+
+  }
 }
 
 trait Grid9DSLPositions{
@@ -55,13 +58,11 @@ trait Grid9DSLPositions{
 /**
  * ex Layout9PositionsDSL
  */
-trait Grid9DSL extends LayoutDSL with Grid9DSLPositions with DSLComponentRegister{
+trait Grid9DSL extends LayoutDSLBase with Grid9DSLPositions {
   type L = Grid9DSL.Layout
   type Placing = Grid9DSL.Placing[_]
 
-  def layout(pl: LElem[Placing]*): L = Grid9DSL.Layout(pl.map(_.elem), regComp)
+  def layout[B <: LayoutBuilder[Placing]](pl: LElem[Placing]*)(implicit builder: B): L =
+    Grid9DSL.Layout(pl.map(_.elem), regComp, builder.build(pl))
   def place[P](p: Placable[P]): Placing = new Grid9DSL.Placing(p)(regComp)
-
-  /** element won't be registered */
-  def noId = null
 }

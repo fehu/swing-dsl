@@ -3,9 +3,7 @@ package feh.dsl.swing.form.impl
 import feh.util._
 import feh.dsl.swing.form.{TextCreationDSLHelper, FormCreationDSL}
 import FormCreationDSL._
-import scala.swing.{TextField, Label}
-import scala.concurrent.{ExecutionContext, Future}
-import feh.dsl.swing.layout.LayoutDSL.{BuildMeta, Placable}
+import feh.dsl.swing.layout.LayoutDSL.Placable
 import scala.xml.NodeSeq
 
 trait Default extends FormCreationDSL with TextCreationDSLHelper with TextFormCreationDefaults{
@@ -14,10 +12,12 @@ trait Default extends FormCreationDSL with TextCreationDSLHelper with TextFormCr
 
   def updateForms(): Unit = ???
 
-  implicit def dslFormBuilderIsPlacable[T](p: (DSLFormBuilder[T], String)): Placable[T] = new Placable[T] {
-    def meta = p._1.meta
-    def id = Option(p._2)
-  }
+  implicit def formBuilderToMeta(b: DSLFormBuilder[Any]) = b.meta
+
+//  implicit def dslFormBuilderIsPlacable[T](p: (DSLFormBuilder[T], String)): Placable[T] = new Placable[T] {
+//    def meta = p._1.meta
+//    def id = Option(p._2)
+//  }
 
 
   val monitorFor = new MonitorCreation[FormConfig] {
