@@ -1,5 +1,8 @@
 package feh.dsl.swing
 
+import javax.swing.event.TableModelListener
+import javax.swing.table.{AbstractTableModel, TableModel}
+
 import scala.swing._
 import scala.swing.event.{SelectionChanged, ValueChanged, ButtonClicked}
 import scala.swing.Label
@@ -25,6 +28,7 @@ trait FormCreation {
   protected trait FormCreationDSL{
     protected def monitorFor[K, V](get: => Map[K, V])(implicit chooser:  (=> Map[K, V]) => MapMonitorComponentChooser[K, V]) = chooser(get)
     protected def monitorFor[T](get: => T)(implicit chooser:  (=> T) => MonitorComponentChooser[T]) = chooser(get)
+    protected def monitorForSeq[T](get: => Seq[T])(implicit chooser:  (=> Seq[T]) => SeqMonitorComponentChooser[T]) = chooser(get)
     protected def controlFor[T](get: => T)(set: T => Unit)(implicit chooser: (=> T, T => Unit) => ControlComponentChooser[T]) = chooser(get, set)
     protected def controlForSeq[T](get: => Seq[T], static: Boolean = false)(implicit chooser: (=> Seq[T], Boolean) => SeqControlComponentChooser[T]) = chooser(get, static)
     protected def numericControlFor[N](get: => N)(set: N => Unit) // todo: sould it exist?
@@ -37,6 +41,7 @@ trait FormCreation {
 
   implicit def monitorComponentChooser[T](get: => T): MonitorComponentChooser[T] = new MonitorComponentChooser(get)
   implicit def mapMonitorComponentChooser[K, V](get: => Map[K, V]): MapMonitorComponentChooser[K, V] = new MapMonitorComponentChooser(get)
+  implicit def seqMonitorComponentChooser[T](get: => Seq[T]): SeqMonitorComponentChooser[T] = new SeqMonitorComponentChooser(get)
   implicit def controlComponentChooser[T](get: => T, set: T => Unit) = new ControlComponentChooser(get, set)
   implicit def seqControlComponentChooser[T: ClassTag](get: => Seq[T], static: Boolean) = new SeqControlComponentChooser(get.lifted, static)
   implicit def numericControlComponentChooser[N: Numeric](get: => N, set: N => Unit): NumericControlComponentChooser[N] = new NumericControlComponentChooser(get, set)
@@ -59,9 +64,9 @@ trait FormCreation {
 
     def text = DSLLabelBuilder(get.lifted, static = false)
     def label = DSLLabelBuilder(get.lifted, static = true)
-    def textField = new DSLTextFormBuilder(get.lifted, null)      .affect(_.editable = false)
-    def textArea = new DSLTextAreaBuilder(get.lifted)             .affect(_.editable = false)
-    def bigText = new DSLTextComponentBuilder(get.lifted)         .affect(_.editable = false)
+    def textField = DSLTextFormBuilder(get.lifted, null)      .affect(_.editable = false)
+    def textArea = DSLTextAreaBuilder(get.lifted)             .affect(_.editable = false)
+    def bigText = DSLTextComponentBuilder(get.lifted)         .affect(_.editable = false)
 
     def asText = text
     def asLabel = text
@@ -73,6 +78,11 @@ trait FormCreation {
     def list(implicit order: Ordering[K]) = DSLKeyedListBuilder(() => get, order)
 
     def asList(implicit order: Ordering[K]) = list
+  }
+
+  protected class SeqMonitorComponentChooser[T](get: => Seq[T]) extends MonitorComponentChooser[Seq[T]](get){
+    def table(columnClasses: (String, Class[_])*)(implicit evidence: T <:< Product) =
+      DSLTableBuilder[T with Product](get.lifted.asInstanceOf[() => Seq[T with Product]], DSLTableBuilder.DSLTableModel(columnClasses))
   }
 
   protected class ControlComponentChooser[T](_get: => T, val set: T => Unit){
@@ -98,7 +108,6 @@ trait FormCreation {
 
   protected class SeqControlComponentChooser[T: ClassTag](get: () => Seq[T], static: Boolean){
     def dropDownList(set: T => Unit) = new DSLComboBoxBuilder(get, static, set)
-
   }
 
   object BuildMeta{
@@ -434,6 +443,73 @@ trait FormCreation {
     def renderKeys(r: ListView.Renderer[(K, V)]) = copy(renderer = r)
   }
 
+  object DSLTableBuilder{
+    case class DSLTableModel(columnClasses: Seq[(String, Class[_])]) extends TableModel{
+
+      def getColumnClass(columnIndex: Int) = columnClasses(columnIndex)._2
+      def getColumnCount = columnClasses.size
+      def getColumnName(columnIndex: Int) = columnClasses(columnIndex)._1
+
+      def isCellEditable(rowIndex: Int, columnIndex: Int) = ???
+      def getValueAt(rowIndex: Int, columnIndex: Int) = ???
+      def setValueAt(aValue: scala.Any, rowIndex: Int, columnIndex: Int) = ???
+      def getRowCount = ???
+      def addTableModelListener(l: TableModelListener) = ???
+      def removeTableModelListener(l: TableModelListener) = ???
+    }
+  }
+  protected case class DSLTableBuilder[T <: Product](protected[FormCreation] val get: () => Seq[T],
+//                                                     protected[FormCreation] implicit val order: Ordering[T],
+                                                     protected[FormCreation] val model: DSLTableBuilder.DSLTableModel,
+                                                     protected[FormCreation] val effects: List[DSLTableBuilder[T]#Form => Unit] = Nil,
+                                                     protected[FormCreation] val layout: List[Constraints => Unit] = Nil)
+    extends DSLFormBuilder[Seq[T]]
+  {
+    builder =>
+
+    type Form = Table with UpdateInterface
+
+    def `type` = "Table"
+
+    private var lastGet: Seq[T] = null
+
+    lazy val form = new Table() with UpdateInterface{
+      var rows: Seq[T] = Nil
+
+      model = new AbstractTableModel {
+
+        def getRowCount = rows.size
+
+        def getColumnCount = builder.model.getColumnCount
+        override def getColumnName(columnIndex: Int) = builder.model.getColumnName(columnIndex)
+        override def getColumnClass(columnIndex: Int) = builder.model.getColumnClass(columnIndex)
+
+        def getValueAt(rowIndex: Int, columnIndex: Int) =
+          rows(rowIndex).productIterator.toSeq(columnIndex).asInstanceOf[AnyRef]
+
+        override def setValueAt(value: Any, row: Int, col: Int) {
+          fireTableCellUpdated(row, col)
+        }
+
+      }
+
+      def updateForm(): Unit = {
+        rows = get()
+
+        if(lastGet == rows) return
+        lastGet = rows
+
+        for(i <- 0 until model.getRowCount; j <- 0 until model.getColumnCount) updateCell(i, j)
+      }
+    }
+
+    lazy val formMeta: FormBuildMeta = form -> layout
+
+    override def affect(effects: (Form => Unit) *) = copy(effects = this.effects ++ effects)
+
+    override def layout(effects: (Constraints => Unit) *) = copy(layout = layout ++ effects)
+  }
+
   protected case class DSLButtonBuilder(protected[FormCreation] val action: () => Unit,
                                         protected[FormCreation] val label: String,
                                         protected[FormCreation] val effects: List[DSLButtonBuilder#Form => Unit] = Nil,
@@ -526,6 +602,7 @@ trait FormCreation {
   }
 
   implicit class ListDSLFormBuilderOps[K, V](builder: DSLKeyedListBuilder[K, V]) extends DSLFormBuilderOps[DSLKeyedListBuilder[K, V]](builder)
+  implicit class TableDSLBuilderOps[T <: Product](builder: DSLTableBuilder[T]) extends DSLFormBuilderOps[DSLTableBuilder[T]](builder)
   implicit class ButtonDSLFormBuilderOps(builder: DSLButtonBuilder) extends DSLFormBuilderOps[DSLButtonBuilder](builder)
   implicit class LabelDSLFormBuilderOps[T](builder: DSLLabelBuilder[T]) extends DSLFormBuilderOps[DSLLabelBuilder[T]](builder)
   implicit class SliderDSLFormBuilderOps[N: Numeric](builder: DSLSliderBuilder[N]) extends DSLFormBuilderOps[DSLSliderBuilder[N]](builder)

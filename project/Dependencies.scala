@@ -10,6 +10,6 @@ object Dependencies{
     def reflectApi(version: String) = "org.scala-lang" % "scala-reflect" % version
 
     object feh{
-      lazy val util = "feh" %% "util" % "1.0.2"
+      lazy val util = "feh.util" %% "util" % "1.0.4"
     }
   }

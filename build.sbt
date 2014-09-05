@@ -8,13 +8,15 @@ organization  := "feh.dsl"
 
 name := "swing"
 
-version := "1.1"
+version := "1.2"
 
 // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 // // // // // // // // //         Build Settings        // // // // // // // // //
 // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 
-crossScalaVersions := Seq("2.11.1", "2.10.3")
+crossScalaVersions := Seq("2.11.2", "2.10.3")
+
+scalaVersion <<= crossScalaVersions(_.head)
 
 // // // // // // // // // // // // // // // // // // // // // // // // // // // //
 // // // // // // // // //      Library Dependencies     // // // // // // // // //
