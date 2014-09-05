@@ -1,17 +1,19 @@
 package feh.dsl.swing
 
-import scala.swing._
-import scala.swing.ScrollPane.BarPolicy
-import feh.dsl.swing.util.AwtUtils
-import javax.swing.JPanel
-import scala.collection.mutable
 import java.util.UUID
-import feh.util._
-import scala.xml.NodeSeq
 import javax.swing.Box.Filler
-import Swing._
+import javax.swing.JPanel
+
 import feh.dsl.swing.FormCreation.Constraints
-import feh.util.PrintIndents.Param
+import feh.dsl.swing.util.AwtUtils
+import feh.util._
+
+import scala.collection.mutable
+import scala.swing.ScrollPane.BarPolicy
+import scala.swing.Swing._
+import scala.swing.TabbedPane.Page
+import scala.swing._
+import scala.xml.NodeSeq
 
 trait AppFrameControl{
   def start()
@@ -52,6 +54,10 @@ trait SwingFrameAppCreation extends FormCreation{
       SplitLayout(orientation(scala.swing.Orientation), leftOrDown, rightOrUp)
     @deprecated protected def set(s: UpperLevelLayoutGlobalSetting): AbstractLayoutSetting = s
     protected def panel = new PanelChooser
+    protected def tabs(placement: scala.swing.Alignment.type => scala.swing.Alignment.Value,
+                       layoutPolicy: TabbedPane.Layout.type => TabbedPane.Layout.Value,
+                       tabs: => Seq[LayoutElem]) =
+      TabbedLayout(placement(scala.swing.Alignment), layoutPolicy(TabbedPane.Layout), () => tabs)
     protected def scrollable[M <% BuildMeta](vert: BarPolicy.Value = BarPolicy.AsNeeded,
                                              hor: BarPolicy.Value = BarPolicy.AsNeeded)
                                             (content: M, id: String) = DSLScrollPaneBuilder(vert, hor, content, id)
@@ -228,6 +234,45 @@ trait SwingFrameAppCreation extends FormCreation{
 
   case class Title(title: String) extends UpperLevelLayoutGlobalSetting
   case class Size(size: (Int, Int)) extends UpperLevelLayoutGlobalSetting
+
+  case class TabbedLayout(placement: scala.swing.Alignment.Value,
+                          layoutPolicy: TabbedPane.Layout.Value,
+                          elems: () => Seq[LayoutElem],
+                          layout: List[Constraints => Unit] = Nil,
+                          effects: List[TabbedLayout#Comp => Unit] = Nil
+                           )
+    extends LayoutSetting with AbstractDSLBuilder
+  {
+    type Comp = TabbedPane with UpdateInterface
+
+    def component = new TabbedPane() with UpdateInterface{
+      tabLayoutPolicy = layoutPolicy
+      tabPlacement = placement
+
+      protected val pagesCache = mutable.HashMap.empty[LayoutElem, (Page, () => Unit)].withDefault{
+        elem =>
+          val c = elem.meta.component
+          new Page(elem.id, c) -> (c match {
+            case upd: UpdateInterface => () => upd.updateForm()
+            case _ => () =>
+          })
+      }
+
+      def updateForm() = {
+        pages.clear()
+        pages ++= elems().map(pagesCache.apply _ andThen(_._1))
+        pagesCache.foreach(_._2._2())
+      }
+      effects.foreach(_(this))
+    }
+
+    def meta: BuildMeta = BuildMeta(component, layout: _*)
+
+    def affect(effects: (TabbedLayout#Comp => Unit) *) = copy(effects = this.effects ++ effects)
+    def layout(effects: (Constraints => Unit) *) = copy(layout = layout ++ effects)
+  }
+
+  implicit def tabbedLayoutMeta(tl: TabbedLayout) = tl.meta
 
   // // //// // //// // //// // //// // //  Layout Settings  // // //// // //// // //// // //// // //
 
