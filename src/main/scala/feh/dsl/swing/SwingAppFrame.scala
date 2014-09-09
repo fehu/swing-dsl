@@ -370,6 +370,7 @@ trait SwingFrameAppCreation extends FormCreation{
 
   }
 
+  implicit class TabsBuilderOps(builder: TabbedLayout) extends DSLFormBuilderOps[TabbedLayout](builder)
   implicit class ScrollBuilderOps(builder: DSLScrollPaneBuilder) extends DSLFormBuilderOps[DSLScrollPaneBuilder](builder)
   implicit class PanelBuilderOps(builder: DSLPanelBuilder) extends DSLFormBuilderOps[DSLPanelBuilder](builder)
   implicit class GridBagMetaOps(meta: GridBagMeta) extends DSLFormBuilderOps[GridBagMeta](meta)
