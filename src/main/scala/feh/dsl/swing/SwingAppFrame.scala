@@ -378,6 +378,7 @@ trait SwingFrameAppCreation extends FormCreation{
   implicit class BoxPanelBuilderOps(builder: DSLBoxPanelBuilder) extends DSLFormBuilderOps[DSLBoxPanelBuilder](builder)
   implicit class GridPanelBuilderOps(builder: DSLGridPanelBuilder) extends DSLFormBuilderOps[DSLGridPanelBuilder](builder)
 
+  implicit def buildFlowPanelMeta: DSLFlowPanelBuilder => BuildMeta = _.meta
   implicit def buildBoxPanelMeta: DSLBoxPanelBuilder => BuildMeta = _.meta
   implicit def buildGridPanelMeta: DSLGridPanelBuilder => BuildMeta = _.meta
 
