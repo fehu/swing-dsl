@@ -533,7 +533,7 @@ trait FormCreation {
       def updateForm(): Unit = {}
     } -> layout
 
-    def affect(effects: ((Form) => Unit) *): DSLFormBuilder[Unit] = copy(effects = this.effects ++ effects)
+    def affect(effects: ((Form) => Unit) *) = copy(effects = this.effects ++ effects)
     def layout(effects: (Constraints => Unit)*) = copy(layout = layout ++ effects)
   }
   
