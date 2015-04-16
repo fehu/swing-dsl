@@ -1,3 +1,4 @@
-resolvers += "Sonatype snapshots" at "http://oss.sonatype.org/content/repositories/snapshots/"
+resolvers += "Fehu's github repo" at "http://fehu.github.io/repo"
 
-addSbtPlugin("com.github.mpeltonen" % "sbt-idea" % "1.6.0")
+addSbtPlugin("feh.util" % "gh-repo-plugin" % "0.3")
+

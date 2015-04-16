@@ -435,9 +435,9 @@ trait FormCreation {
     def affect(effects: (Form=> Unit) *) = copy(effects = this.effects ++ effects)
     def layout(effects: (Constraints => Unit)*) = copy(layout = layout ++ effects)
 
-    def render(vr: ListView.Renderer[V]) = copy(renderer = new ListView.Renderer[(K, V)]{
-      def componentFor(list: ListView[_], isSelected: Boolean, focused: Boolean, a: (K, V), index: Int): Component =
-        vr.componentFor(list, isSelected, focused, a._2, index)
+    def render(vr: ListView.Renderer[(K, V)]) = copy(renderer = new ListView.Renderer[(K, V)]{
+      def componentFor(list: ListView[_ <: (K, V)], isSelected: Boolean, focused: Boolean, a: (K, V), index: Int): Component =
+        vr.componentFor(list, isSelected, focused, a, index)
     })
 
     def renderKeys(r: ListView.Renderer[(K, V)]) = copy(renderer = r)

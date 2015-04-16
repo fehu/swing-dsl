@@ -1,35 +1,13 @@
-import Dependencies._
-
-// // // // // // // // // // // // // // // // // // // // // // // // // // // //
-// // // // // // // // //        Project Settings       // // // // // // // // //
-// // // // // // // // // // // // // // // // // // // // // // // // // // // //
-
 organization  := "feh.dsl"
 
 name := "swing"
 
-version := "1.2"
+version := "1.3-SNAPSHOT"
 
-// // // // // // // // // // // // // // // // // // // // // // // // // // // //
-// // // // // // // // //         Build Settings        // // // // // // // // //
-// // // // // // // // // // // // // // // // // // // // // // // // // // // //
+scalaVersion := "2.11.6"
 
-crossScalaVersions := Seq("2.11.2", "2.10.3")
+libraryDependencies += "org.scala-lang.modules" %% "scala-swing" % "2.0.0-M2"
 
-scalaVersion <<= crossScalaVersions(_.head)
+libraryDependencies += "org.scala-lang.modules" %% "scala-xml" % "1.0.3-SNAPSHOT"
 
-// // // // // // // // // // // // // // // // // // // // // // // // // // // //
-// // // // // // // // //      Library Dependencies     // // // // // // // // //
-// // // // // // // // // // // // // // // // // // // // // // // // // // // //
-
-libraryDependencies <+= scalaVersion(scalaSwing)
-
-libraryDependencies ++= Seq(feh.util)
-
-// // // // // // // // // // // // // // // // // // // // // // // // // // // //
-// // // // // // // // //              Misc             // // // // // // // // //
-// // // // // // // // // // // // // // // // // // // // // // // // // // // //
-
-ideaExcludeFolders += ".idea"
-
-ideaExcludeFolders += ".idea_modules"
+libraryDependencies += "feh.util" %% "util" % "1.0.9-SNAPSHOT"
