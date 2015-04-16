@@ -21,7 +21,8 @@ trait AppFrameControl{
 }
 
 trait SwingAppBuildingEnvironment extends SwingFrameAppCreation{
-  trait SwingAppFrame extends Frame with AppFrameControl {
+  
+  trait SwingFrame extends Frame with AppFrameControl {
     self: LayoutDSL with LayoutBuilder =>
 
     override def closeOperation(): Unit = {

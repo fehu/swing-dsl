@@ -5,7 +5,7 @@ import scala.swing.Component
 
 trait AbstractGUI extends SwingFrameAppCreation with SwingAppBuildingEnvironment{
 
-  trait GuiFrame extends SwingAppFrame with LayoutDSL with LayoutBuilder
+  trait GuiFrame extends SwingFrame with LayoutDSL with LayoutBuilder
 
   object Description{
     sealed trait Conf
