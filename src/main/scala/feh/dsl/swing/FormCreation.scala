@@ -35,8 +35,8 @@ trait FormCreation {
     protected def controlForSeq[T](get: => Seq[T], static: Boolean = false)(implicit chooser: (=> Seq[T], Boolean) => SeqControlComponentChooser[T]) = chooser(get, static)
     protected def controlForNumeric[N](get: => N)(set: N => Unit) // todo: sould it exist?
                                       (implicit chooser: (=> N, N => Unit) => NumericControlComponentChooser[N], num: Numeric[N]) = chooser(get, set)   
-    protected def controlForOrdered[T <: Ordered[T]](get: => T)(set: T => Unit) // todo: sould it exist?
-                                                    (implicit chooser: (=> T, T => Unit) => OrderedControlComponentChooser[T]) = chooser(get, set)
+    protected def controlForOrdered[T](get: => T)(set: T => Unit) // todo: sould it exist?
+                                      (implicit chooser: (=> T, T => Unit) => OrderedControlComponentChooser[T], ordering: Ordering[T]) = chooser(get, set)
     protected def triggerFor(action: => Unit)(implicit chooser: (=> Unit) => TriggerComponentChooser) = chooser(action)
     protected def toggleFor(on: => Unit, off: => Unit)(implicit chooser: (=> Unit, => Unit) => ToggleComponentChooser) = chooser(on, off)
 
@@ -51,6 +51,7 @@ trait FormCreation {
   implicit def controlComponentChooser[T](get: => T, set: T => Unit) = new ControlComponentChooser(get, set)
   implicit def seqControlComponentChooser[T: ClassTag](get: => Seq[T], static: Boolean) = new SeqControlComponentChooser(get.lifted, static)
   implicit def numericControlComponentChooser[N: Numeric](get: => N, set: N => Unit): NumericControlComponentChooser[N] = new NumericControlComponentChooser(get, set)
+  implicit def orderedControlComponentChooser[N: Numeric](get: => N, set: N => Unit): OrderedControlComponentChooser[N] = new OrderedControlComponentChooser(get, set)
   implicit def triggerComponentChooser(action: => Unit): TriggerComponentChooser = new TriggerComponentChooser(action)
   implicit def toggleComponentChooser(on: => Unit, off: => Unit): ToggleComponentChooser = new ToggleComponentChooser(on, off)
 
@@ -102,12 +103,12 @@ trait FormCreation {
 
   }
 
-  protected class OrderedControlComponentChooser[T <: Ordered[T]](_get: => T, override val set: T => Unit) extends ControlComponentChooser(_get, set){
+  protected class OrderedControlComponentChooser[T: Ordering](_get: => T, override val set: T => Unit) extends ControlComponentChooser(_get, set){
     def spinner = new DSLNumericSpinnerBuilder(() => get, set)
   }
 
   protected class NumericControlComponentChooser[N: Numeric](_get: => N, override val set: N => Unit) extends ControlComponentChooser(_get, set){
-    def slider(range: NumericRange[N]) = new DSLSliderBuilder(() => get, set, range)
+    def slider(min: N, max: N, step: N) = new DSLSliderBuilder(() => get, set, min, max, step)
   }
 
   protected class ToggleComponentChooser(on: => Unit, off: => Unit){
@@ -160,7 +161,7 @@ trait FormCreation {
     def layout(effects: (Constraints => Unit)*): AbstractDSLBuilder
   }
 
-  protected trait DSLFormBuilder[T] extends AbstractDSLBuilder{
+  protected trait DSLFormBuilder[+T] extends AbstractDSLBuilder{
     builder =>
 
     type Form <: Component with UpdateInterface
@@ -352,13 +353,14 @@ trait FormCreation {
     lazy val formMeta: FormBuildMeta = form -> layout
 
     def withRenderer(vr: ListView.Renderer[T]) = copy(renderer = vr)
+    def withStringExtractor(extr: T => String) = copy(extractString = extr)
 
     def affect(eff: (Form => Unit)*): DSLComboBoxBuilder[T] = copy(effects = effects ++ eff)
     def layout(effects: (Constraints => Unit)*): DSLComboBoxBuilder[T] = copy(layout = layout ++ effects)
   }
 
 
-  protected case class DSLNumericSpinnerBuilder[T <: Ordered[_]](
+  protected case class DSLNumericSpinnerBuilder[T: Ordering](
               protected[FormCreation] val get: () => T,
               protected[FormCreation] val set: T => Unit,
               protected[FormCreation] val model: SpinnerNumberModel = new SpinnerNumberModel(),
@@ -368,6 +370,8 @@ trait FormCreation {
     type Form = Spinner[T] with UpdateInterface
     def `type` = "Spinner"
 
+    import Ordered._
+
     def maxValue(max: T)    = affectModel(_.setMaximum(max))
     def minValue(min: T)    = affectModel(_.setMinimum(min))
     def step(step: Number)  = affectModel(_.setStepSize(step))
@@ -376,7 +380,7 @@ trait FormCreation {
     lazy val form: Form = new Spinner[T](model) with UpdateInterface{
       spinner =>
 
-      def updateForm(): Unit = setValue(get())
+      def updateForm(): Unit = value = get()
 
       effects.foreach(_(spinner))
 
@@ -387,7 +391,7 @@ trait FormCreation {
 
     }
 
-    lazy val formMeta: FormBuildMeta = ???
+    lazy val formMeta: FormBuildMeta = form -> layout
 
     def affect(effects: (Form => Unit)*) = copy(effects = this.effects ++ effects)
     def affectModel(effect: SpinnerNumberModel => Unit) = { effect(model); this}
@@ -398,11 +402,15 @@ trait FormCreation {
 
   protected case class DSLSliderBuilder[N: Numeric](protected[FormCreation] val get: () => N,
                                                     protected[FormCreation] val set: N => Unit,
-                                                    protected[FormCreation] val range: NumericRange[N],
+                                                    protected[FormCreation] val min: N,
+                                                    protected[FormCreation] val max: N,
+                                                    protected[FormCreation] val step: N,
                                                     protected[FormCreation] val effects: List[DSLSliderBuilder[N]#Form => Unit] = Nil,
                                                     protected[FormCreation] val layout: List[Constraints => Unit] = Nil)
     extends DSLFormBuilder[N]
   {
+    builder =>
+    
     type Form = Slider with UpdateInterface
     def `type` = "Slider"
     val num = implicitly[Numeric[N]]
@@ -411,19 +419,24 @@ trait FormCreation {
     lazy val form: Slider with UpdateInterface = new Slider with UpdateInterface{
       slider =>
 
-//      val n = range.length
-
-      def parseInt(i: Int) = fromInt(i) * range.step
-      def toInt(n: N) = n match{
-        case d: Double => (d / range.step.toDouble()).toInt
+      val n = num match {
+        case nn: Integral[N] => spinnerIndex(nn.quot(builder.max - builder.min, step))
+        case nn: Fractional[N] => spinnerIndex(nn.div(builder.max - builder.min, step))
+        }
+       
+      def parseInt(i: Int) = fromInt(i - min) * step
+      
+      def spinnerIndex(v: N) = num match {
+        case nn: Integral[N] => nn.quot(v - builder.min, step).toInt()
+        case nn: Fractional[N] => nn.div(v - builder.min, step).toInt()
       }
 
-      min = 0
-      max = toInt(range.max)
-
+      min = Int.MinValue
+      max = min + n
+      
       effects.foreach(_(slider))
 
-      def updateForm(): Unit = { value = toInt(get()) }
+      def updateForm(): Unit = { value = spinnerIndex(get()) }
 
       listenTo(slider)
       reactions += {
@@ -436,20 +449,20 @@ trait FormCreation {
     // todo: this is for floating
     lazy val formMeta: FormBuildMeta = form -> layout
 
-    private def divideStep = (_: N) match{
-      case d: Double =>
-        if (d < range.step.toDouble) 1
-        else (d / range.step.toDouble).toInt
-    }
+//    private def divideStep = (_: N) match{
+//      case d: Double =>
+//        if (d < range.step.toDouble) 1
+//        else (d / range.step.toDouble).toInt
+//    }
     
     def vertical = affect(_.orientation = Orientation.Vertical)
     def horizontal = affect(_.orientation = Orientation.Horizontal)
     def showLabels = affect(_.paintLabels = true)
     def labels(step: N, build: N => String): DSLSliderBuilder[N] = ???
     def labels(map: Map[Int, Label]): DSLSliderBuilder[N] = affect(_.labels = map).showLabels
-    def defaultLabels(step: N): DSLSliderBuilder[N] = defaultLabels(divideStep(step))
+//    def defaultLabels(step: N): DSLSliderBuilder[N] = defaultLabels(divideStep(step)) todo
     def defaultLabels(step: Int): DSLSliderBuilder[N] =
-      affect(sl => sl.peer setLabelTable sl.peer.createStandardLabels(step))
+      affect(sl => sl.peer setLabelTable sl.peer.createStandardLabels(step)) // todo
         .showLabels
 
     def affect(effects: (Form => Unit)*) = copy(effects = this.effects ++ effects)
