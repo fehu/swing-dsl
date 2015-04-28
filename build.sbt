@@ -6,6 +6,8 @@ version := "1.3-SNAPSHOT"
 
 scalaVersion := "2.11.6"
 
+// resolvers += "Fehu's github repo" at "http://fehu.github.io/repo"
+
 libraryDependencies += "org.scala-lang.modules" %% "scala-swing" % "2.0.0-M2"
 
 libraryDependencies += "org.scala-lang.modules" %% "scala-xml" % "1.0.3-SNAPSHOT"

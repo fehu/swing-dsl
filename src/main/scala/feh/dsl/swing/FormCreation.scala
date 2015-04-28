@@ -77,17 +77,11 @@ trait FormCreation {
     def textField = DSLTextFormBuilder(get.lifted, null)      .affect(_.editable = false)
     def textArea = DSLTextAreaBuilder(get.lifted)             .affect(_.editable = false)
     def bigText = DSLTextComponentBuilder(get.lifted)         .affect(_.editable = false)
-
-    def asText = text
-    def asLabel = text
-    def asTextField = textField
-    def asTextArea = textArea
   }
 
   protected class MapMonitorComponentChooser[K, V](_get: => Map[K, V]) extends MonitorComponentChooser[Map[K, V]](_get){
     def list(implicit order: Ordering[K]) = DSLKeyedListBuilder(() => get, order)
 
-    def asList(implicit order: Ordering[K]) = list
   }
 
   protected class SeqMonitorComponentChooser[T](get: => Seq[T]) extends MonitorComponentChooser[Seq[T]](get){
@@ -108,7 +102,8 @@ trait FormCreation {
   }
 
   protected class NumericControlComponentChooser[N: Numeric](_get: => N, override val set: N => Unit) extends ControlComponentChooser(_get, set){
-    def slider(min: N, max: N, step: N) = new DSLSliderBuilder(() => get, set, min, max, step)
+    def slider(min: N, max: N, step: N, labelPos: DSLSliderBuilder.LabelPosition.type => DSLSliderBuilder.LabelPosition = null) =
+      new DSLSliderBuilder(() => get, set, min, max, step, Option(labelPos).map(_(DSLSliderBuilder.LabelPosition)))
   }
 
   protected class ToggleComponentChooser(on: => Unit, off: => Unit){
@@ -405,18 +400,34 @@ trait FormCreation {
                                                     protected[FormCreation] val min: N,
                                                     protected[FormCreation] val max: N,
                                                     protected[FormCreation] val step: N,
+                                                    protected[FormCreation] val labelPos: Option[DSLSliderBuilder.LabelPosition],
                                                     protected[FormCreation] val effects: List[DSLSliderBuilder[N]#Form => Unit] = Nil,
                                                     protected[FormCreation] val layout: List[Constraints => Unit] = Nil)
     extends DSLFormBuilder[N]
   {
     builder =>
-    
-    type Form = Slider with UpdateInterface
-    def `type` = "Slider"
+
+    type Form = DSLSliderBuilder.SliderExt
+    def `type` = "SliderExt"
     val num = implicitly[Numeric[N]]
     import num._
 
-    lazy val form: Slider with UpdateInterface = new Slider with UpdateInterface{
+    lazy val form: Form = new DSLSliderBuilder.SliderExt(slider, labelPos.map(_ => valLabel)){
+      contents ++= (labelPos match{
+        case None                                               => Seq(slider)
+        case Some(DSLSliderBuilder.LabelPosition.Left)  => Seq(valLabel, slider)
+        case Some(DSLSliderBuilder.LabelPosition.Right) => Seq(slider, valLabel)
+      })
+
+      def updateForm(): Unit = {
+        slider.updateForm()
+        labelOpt.foreach(_.updateForm())
+      }
+    }
+
+    lazy val valLabel = DSLLabelBuilder(get, static = false).form
+
+    lazy val slider: Slider with UpdateInterface = new Slider with UpdateInterface{
       slider =>
 
       val n = num match {
@@ -434,7 +445,7 @@ trait FormCreation {
       min = Int.MinValue
       max = min + n
       
-      effects.foreach(_(slider))
+      effects.foreach(_(form))
 
       def updateForm(): Unit = { value = spinnerIndex(get()) }
 
@@ -442,6 +453,7 @@ trait FormCreation {
       reactions += {
         case e@ValueChanged(`slider`) if !slider.adjusting =>
           set(parseInt(slider.value))
+          if(labelPos.isDefined) valLabel.updateForm()
       }
 
     }
@@ -454,21 +466,33 @@ trait FormCreation {
 //        if (d < range.step.toDouble) 1
 //        else (d / range.step.toDouble).toInt
 //    }
-    
-    def vertical = affect(_.orientation = Orientation.Vertical)
-    def horizontal = affect(_.orientation = Orientation.Horizontal)
-    def showLabels = affect(_.paintLabels = true)
+
+    def vertical = affect(_.slider.orientation = Orientation.Vertical)
+    def horizontal = affect(_.slider.orientation = Orientation.Horizontal)
+    def showLabels = affect(_.slider.paintLabels = true)
     def labels(step: N, build: N => String): DSLSliderBuilder[N] = ???
-    def labels(map: Map[Int, Label]): DSLSliderBuilder[N] = affect(_.labels = map).showLabels
+    def labels(map: Map[Int, Label]): DSLSliderBuilder[N] = affect(_.slider.labels = map).showLabels
 //    def defaultLabels(step: N): DSLSliderBuilder[N] = defaultLabels(divideStep(step)) todo
     def defaultLabels(step: Int): DSLSliderBuilder[N] =
-      affect(sl => sl.peer setLabelTable sl.peer.createStandardLabels(step)) // todo
+      affect(sl => sl.slider.peer setLabelTable sl.slider.peer.createStandardLabels(step)) // todo
         .showLabels
 
     def affect(effects: (Form => Unit)*) = copy(effects = this.effects ++ effects)
     def layout(effects: (Constraints => Unit)*) = copy(layout = layout ++ effects)
   }
 
+  object DSLSliderBuilder{
+
+    type LabelPosition = LabelPosition.Value
+    object LabelPosition extends Enumeration{
+      val Left, Right = Value
+    }
+
+    abstract class SliderExt(val slider: Slider with UpdateInterface,
+                             val labelOpt: Option[Label with UpdateInterface]) extends FlowPanel with UpdateInterface
+
+
+  }
 
 
   protected case class DSLKeyedListBuilder[K, V](protected[FormCreation] val get: () => Map[K, V],
