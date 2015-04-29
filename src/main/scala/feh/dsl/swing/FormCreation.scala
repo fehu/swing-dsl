@@ -99,11 +99,13 @@ trait FormCreation {
 
   protected class OrderedControlComponentChooser[T: Ordering](_get: => T, override val set: T => Unit) extends ControlComponentChooser(_get, set){
     def spinner = new DSLNumericSpinnerBuilder(() => get, set)
+    def slider(domain: Seq[T], labelPos: DSLSliderBuilder.LabelPosition.type => DSLSliderBuilder.LabelPosition = null) =
+      new DSLSliderBuilderBySeq(_get.lifted, set, domain, Option(labelPos).map(_(DSLSliderBuilder.LabelPosition)))
   }
 
   protected class NumericControlComponentChooser[N: Numeric](_get: => N, override val set: N => Unit) extends ControlComponentChooser(_get, set){
     def slider(min: N, max: N, step: N, labelPos: DSLSliderBuilder.LabelPosition.type => DSLSliderBuilder.LabelPosition = null) =
-      new DSLSliderBuilder(() => get, set, min, max, step, Option(labelPos).map(_(DSLSliderBuilder.LabelPosition)))
+      new DSLSliderBuilderByRange(() => get, set, min, max, step, Option(labelPos).map(_(DSLSliderBuilder.LabelPosition)))
   }
 
   protected class ToggleComponentChooser(on: => Unit, off: => Unit){
@@ -394,23 +396,19 @@ trait FormCreation {
   }
 
 
-
-  protected case class DSLSliderBuilder[N: Numeric](protected[FormCreation] val get: () => N,
-                                                    protected[FormCreation] val set: N => Unit,
-                                                    protected[FormCreation] val min: N,
-                                                    protected[FormCreation] val max: N,
-                                                    protected[FormCreation] val step: N,
-                                                    protected[FormCreation] val labelPos: Option[DSLSliderBuilder.LabelPosition],
-                                                    protected[FormCreation] val effects: List[DSLSliderBuilder[N]#Form => Unit] = Nil,
-                                                    protected[FormCreation] val layout: List[Constraints => Unit] = Nil)
-    extends DSLFormBuilder[N]
-  {
+  protected trait DSLSliderBuilder[T] extends DSLFormBuilder[T] {
     builder =>
 
     type Form = DSLSliderBuilder.SliderExt
     def `type` = "SliderExt"
-    val num = implicitly[Numeric[N]]
-    import num._
+
+    protected[FormCreation] def get: () => T
+    protected[FormCreation] def set: T => Unit
+    protected[FormCreation] def labelPos: Option[DSLSliderBuilder.LabelPosition]
+    protected[FormCreation] def effects: List[DSLSliderBuilder[T]#Form => Unit]
+    protected[FormCreation] def layout: List[Constraints => Unit]
+
+    val slider: Slider with UpdateInterface
 
     lazy val form: Form = new DSLSliderBuilder.SliderExt(slider, labelPos.map(_ => valLabel)){
       contents ++= (labelPos match{
@@ -427,55 +425,98 @@ trait FormCreation {
 
     lazy val valLabel = DSLLabelBuilder(get, static = false).form
 
-    lazy val slider: Slider with UpdateInterface = new Slider with UpdateInterface{
-      slider =>
-
-      val n = num match {
-        case nn: Integral[N] => spinnerIndex(nn.quot(builder.max - builder.min, step))
-        case nn: Fractional[N] => spinnerIndex(nn.div(builder.max - builder.min, step))
-        }
-       
-      def parseInt(i: Int) = fromInt(i - min) * step
-      
-      def spinnerIndex(v: N) = num match {
-        case nn: Integral[N] => nn.quot(v - builder.min, step).toInt()
-        case nn: Fractional[N] => nn.div(v - builder.min, step).toInt()
-      }
-
-      min = Int.MinValue
-      max = min + n
-      
-      effects.foreach(_(form))
-
-      def updateForm(): Unit = { value = spinnerIndex(get()) }
-
-      listenTo(slider)
-      reactions += {
-        case e@ValueChanged(`slider`) if !slider.adjusting =>
-          set(parseInt(slider.value))
-          if(labelPos.isDefined) valLabel.updateForm()
-      }
-
-    }
-
     // todo: this is for floating
     lazy val formMeta: FormBuildMeta = form -> layout
 
-//    private def divideStep = (_: N) match{
-//      case d: Double =>
-//        if (d < range.step.toDouble) 1
-//        else (d / range.step.toDouble).toInt
-//    }
+    override def affect(effects: (Form => Unit)*): DSLSliderBuilder[T]
 
     def vertical = affect(_.slider.orientation = Orientation.Vertical)
     def horizontal = affect(_.slider.orientation = Orientation.Horizontal)
     def showLabels = affect(_.slider.paintLabels = true)
-    def labels(step: N, build: N => String): DSLSliderBuilder[N] = ???
-    def labels(map: Map[Int, Label]): DSLSliderBuilder[N] = affect(_.slider.labels = map).showLabels
-//    def defaultLabels(step: N): DSLSliderBuilder[N] = defaultLabels(divideStep(step)) todo
-    def defaultLabels(step: Int): DSLSliderBuilder[N] =
+    def labels(step: T, build: T => String): DSLSliderBuilder[T] = ???
+    def labels(map: Map[Int, Label]): DSLSliderBuilder[T] = affect(_.slider.labels = map).showLabels
+    //    def defaultLabels(step: N): DSLSliderBuilder[N] = defaultLabels(divideStep(step)) todo
+    def defaultLabels(step: Int): DSLSliderBuilder[T] =
       affect(sl => sl.slider.peer setLabelTable sl.slider.peer.createStandardLabels(step)) // todo
-        .showLabels
+      .showLabels
+
+    protected abstract class SliderUpd extends Slider with UpdateInterface{
+      slider =>
+
+      def sliderMin = Int.MinValue
+
+      def toSliderVal(n: T): Int
+      def fromSliderVal(v: Int): T
+
+      def stepsCount: Int
+
+      min = sliderMin
+      max = sliderMin + stepsCount
+
+      effects.foreach(_(form))
+
+      def updateForm(): Unit = { value = toSliderVal(get()) }
+
+      listenTo(slider)
+      reactions += {
+        case e@ValueChanged(`slider`) if !slider.adjusting =>
+          set(fromSliderVal(slider.value))
+          if(labelPos.isDefined) valLabel.updateForm()
+      }
+    }
+
+  }
+
+  protected case class DSLSliderBuilderByRange[N](protected[FormCreation] val get: () => N,
+                                                  protected[FormCreation] val set: N => Unit,
+                                                  protected[FormCreation] val min: N,
+                                                  protected[FormCreation] val max: N,
+                                                  protected[FormCreation] val step: N,
+                                                  protected[FormCreation] val labelPos: Option[DSLSliderBuilder.LabelPosition],
+                                                  protected[FormCreation] val effects: List[DSLSliderBuilder[N]#Form => Unit] = Nil,
+                                                  protected[FormCreation] val layout: List[Constraints => Unit] = Nil)
+                                                 (implicit val num: Numeric[N])
+    extends DSLSliderBuilder[N]
+  {
+    builder =>
+
+    import num._
+
+    lazy val slider: Slider with UpdateInterface = new SliderUpd {
+      lazy val stepsCount = divide(num.minus(builder.max, builder.min), builder.step).toInt() + 1
+
+      def toSliderVal(n: N) = sliderMin + divide(num.minus(n, builder.min), builder.step).toInt()
+      def fromSliderVal(v: Int) = num.plus(builder.min, num.times(num.fromInt(v - sliderMin), builder.step))
+
+      def divide(n1: N, n2: N) = num match {
+        case num: Integral[N]   => num.quot(n1, n2).ensuring(num.rem(n1, n2) == 0)
+        case num: Fractional[N] => num.div(n1, n2)
+      }
+    }
+
+    def affect(effects: (Form => Unit)*) = copy(effects = this.effects ++ effects)
+    def layout(effects: (Constraints => Unit)*) = copy(layout = layout ++ effects)
+  }
+
+  protected case class DSLSliderBuilderBySeq[T](protected[FormCreation] val get: () => T,
+                                                protected[FormCreation] val set: T => Unit,
+                                                protected[FormCreation] val domain: Seq[T],
+                                                protected[FormCreation] val labelPos: Option[DSLSliderBuilder.LabelPosition],
+                                                protected[FormCreation] val effects: List[DSLSliderBuilder[T]#Form => Unit] = Nil,
+                                                protected[FormCreation] val layout: List[Constraints => Unit] = Nil)
+                                               (implicit val ord: Ordering[T])
+    extends DSLSliderBuilder[T]
+  {
+
+    lazy val slider: Slider with UpdateInterface = new SliderUpd{
+      val values    = Stream.from(Int.MinValue).zip(domain.sorted).toMap
+      val valuesInv = values.map(_.swap)
+
+      lazy val stepsCount = domain.size
+
+      def toSliderVal(n: T) = valuesInv(n)
+      def fromSliderVal(v: Int) = values(v)
+    }
 
     def affect(effects: (Form => Unit)*) = copy(effects = this.effects ++ effects)
     def layout(effects: (Constraints => Unit)*) = copy(layout = layout ++ effects)
