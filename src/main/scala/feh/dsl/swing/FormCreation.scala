@@ -100,12 +100,14 @@ trait FormCreation {
   }
 
   protected class OrderedControlComponentChooser[T: Ordering](_get: => T, override val set: T => Unit) extends ControlComponentChooser(_get, set){
-    def spinner = new DSLNumericSpinnerBuilder(() => get, set)
+    def spinner(model: SpinnerModel) = new DSLOrderedSpinnerBuilder(() => get, set, model)
   }
 
   protected class NumericControlComponentChooser[N: Numeric](_get: => N, override val set: N => Unit) extends ControlComponentChooser(_get, set){
     def slider(min: N, max: N, step: N, labelPos: DSLSliderBuilder.LabelPosition.type => DSLSliderBuilder.LabelPosition = null) =
       new DSLSliderBuilderByRange(() => get, set, min, max, step, Option(labelPos).map(_(DSLSliderBuilder.LabelPosition)))
+
+    def spinner(model: SpinnerNumberModel = new SpinnerNumberModel) = new DSLNumericSpinnerBuilder(() => get, set, model)
   }
 
   protected class WithDomainControlComponentChooser[T](get: => T, set: T => Unit) {
@@ -362,21 +364,17 @@ trait FormCreation {
   }
 
 
-  protected case class DSLNumericSpinnerBuilder[T: Ordering](
-              protected[FormCreation] val get: () => T,
-              protected[FormCreation] val set: T => Unit,
-              protected[FormCreation] val model: SpinnerNumberModel = new SpinnerNumberModel(),
-              protected[FormCreation] val effects: List[DSLNumericSpinnerBuilder[T]#Form => Unit] = Nil,
-              protected[FormCreation] val layout: List[Constraints => Unit] = Nil) extends DSLFormBuilder[T]
-  {
+  protected trait DSLSpinnerBuilder[T] extends DSLFormBuilder[T]{
     type Form = Spinner[T] with UpdateInterface
     def `type` = "Spinner"
 
-    import Ordered._
+    protected[FormCreation] def get: () => T
+    protected[FormCreation] def set: T => Unit
+    protected[FormCreation] def model: SpinnerModel
+    protected[FormCreation] def effects: List[DSLSpinnerBuilder[T]#Form => Unit]
+    protected[FormCreation] val layout: List[Constraints => Unit]
 
-    def maxValue(max: T)    = affectModel(_.setMaximum(max))
-    def minValue(min: T)    = affectModel(_.setMinimum(min))
-    def step(step: Number)  = affectModel(_.setStepSize(step))
+
     def setValue(v: T)      = affectModel(_.setValue(v))
 
     lazy val form: Form = new Spinner[T](model) with UpdateInterface{
@@ -395,8 +393,41 @@ trait FormCreation {
 
     lazy val formMeta: FormBuildMeta = form -> layout
 
+    def affectModel(effect: SpinnerModel => Unit) = { effect(model); this}
+
+  }
+
+  protected case class DSLOrderedSpinnerBuilder[T: Ordering](
+              protected[FormCreation] val get: () => T,
+              protected[FormCreation] val set: T => Unit,
+              protected[FormCreation] val model: SpinnerModel,
+              protected[FormCreation] val effects: List[DSLSpinnerBuilder[T]#Form => Unit] = Nil,
+              protected[FormCreation] val layout: List[Constraints => Unit] = Nil
+                                                       )
+    extends DSLSpinnerBuilder[T]
+  {
     def affect(effects: (Form => Unit)*) = copy(effects = this.effects ++ effects)
-    def affectModel(effect: SpinnerNumberModel => Unit) = { effect(model); this}
+    def layout(effects: (Constraints => Unit)*) = copy(layout = layout ++ effects)
+  }
+
+  protected case class DSLNumericSpinnerBuilder[N: Numeric](
+              protected[FormCreation] val get: () => N,
+              protected[FormCreation] val set: N => Unit,
+              protected[FormCreation] val model: SpinnerNumberModel,
+              protected[FormCreation] val effects: List[DSLSpinnerBuilder[N]#Form => Unit] = Nil,
+              protected[FormCreation] val layout: List[Constraints => Unit] = Nil
+              )
+    extends DSLSpinnerBuilder[N]
+  {
+    import Ordered._
+
+    def maxValue(max: N)    = affectNumericModel(_.setMaximum(max))
+    def minValue(min: N)    = affectNumericModel(_.setMinimum(min))
+    def step(step: Number)  = affectNumericModel(_.setStepSize(step))
+
+    def affectNumericModel(effect: SpinnerNumberModel => Unit) = { effect(model); this}
+
+    def affect(effects: (Form => Unit)*) = copy(effects = this.effects ++ effects)
     def layout(effects: (Constraints => Unit)*) = copy(layout = layout ++ effects)
   }
 
