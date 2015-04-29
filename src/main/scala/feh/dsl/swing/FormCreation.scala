@@ -456,7 +456,7 @@ trait FormCreation {
       def stepsCount: Int
 
       min = sliderMin
-      max = sliderMin + stepsCount
+      max = sliderMin + stepsCount - 1
 
       effects.foreach(_(form))
 
