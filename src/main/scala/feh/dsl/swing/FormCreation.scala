@@ -32,6 +32,7 @@ trait FormCreation {
     protected def monitorFor[T](get: => T)(implicit chooser:  (=> T) => MonitorComponentChooser[T]) = chooser(get)
     protected def monitorForSeq[T](get: => Seq[T])(implicit chooser:  (=> Seq[T]) => SeqMonitorComponentChooser[T]) = chooser(get)
     protected def controlFor[T](get: => T)(set: T => Unit)(implicit chooser: (=> T, T => Unit) => ControlComponentChooser[T]) = chooser(get, set)
+    protected def controlGivenDomain[T](get: => T)(set: T => Unit)(implicit chooser: (=> T, T => Unit) => WithDomainControlComponentChooser[T]) = chooser(get, set)
     protected def controlForSeq[T](get: => Seq[T], static: Boolean = false)(implicit chooser: (=> Seq[T], Boolean) => SeqControlComponentChooser[T]) = chooser(get, static)
     protected def controlForNumeric[N](get: => N)(set: N => Unit) // todo: sould it exist?
                                       (implicit chooser: (=> N, N => Unit) => NumericControlComponentChooser[N], num: Numeric[N]) = chooser(get, set)   
@@ -50,6 +51,7 @@ trait FormCreation {
   implicit def seqMonitorComponentChooser[T](get: => Seq[T]): SeqMonitorComponentChooser[T] = new SeqMonitorComponentChooser(get)
   implicit def controlComponentChooser[T](get: => T, set: T => Unit) = new ControlComponentChooser(get, set)
   implicit def seqControlComponentChooser[T: ClassTag](get: => Seq[T], static: Boolean) = new SeqControlComponentChooser(get.lifted, static)
+  implicit def withDomainControlComponentChooser[T](get: => T, set: T => Unit) = new WithDomainControlComponentChooser(get, set)
   implicit def numericControlComponentChooser[N: Numeric](get: => N, set: N => Unit): NumericControlComponentChooser[N] = new NumericControlComponentChooser(get, set)
   implicit def orderedControlComponentChooser[N: Numeric](get: => N, set: N => Unit): OrderedControlComponentChooser[N] = new OrderedControlComponentChooser(get, set)
   implicit def triggerComponentChooser(action: => Unit): TriggerComponentChooser = new TriggerComponentChooser(action)
@@ -99,13 +101,16 @@ trait FormCreation {
 
   protected class OrderedControlComponentChooser[T: Ordering](_get: => T, override val set: T => Unit) extends ControlComponentChooser(_get, set){
     def spinner = new DSLNumericSpinnerBuilder(() => get, set)
-    def slider(domain: Seq[T], labelPos: DSLSliderBuilder.LabelPosition.type => DSLSliderBuilder.LabelPosition = null) =
-      new DSLSliderBuilderBySeq(_get.lifted, set, domain, Option(labelPos).map(_(DSLSliderBuilder.LabelPosition)))
   }
 
   protected class NumericControlComponentChooser[N: Numeric](_get: => N, override val set: N => Unit) extends ControlComponentChooser(_get, set){
     def slider(min: N, max: N, step: N, labelPos: DSLSliderBuilder.LabelPosition.type => DSLSliderBuilder.LabelPosition = null) =
       new DSLSliderBuilderByRange(() => get, set, min, max, step, Option(labelPos).map(_(DSLSliderBuilder.LabelPosition)))
+  }
+
+  protected class WithDomainControlComponentChooser[T](get: => T, set: T => Unit) {
+    def slider(domain: Seq[T], labelPos: DSLSliderBuilder.LabelPosition.type => DSLSliderBuilder.LabelPosition = null) =
+      new DSLSliderBuilderBySeq(get.lifted, set, domain, Option(labelPos).map(_(DSLSliderBuilder.LabelPosition)))
   }
 
   protected class ToggleComponentChooser(on: => Unit, off: => Unit){
@@ -504,13 +509,12 @@ trait FormCreation {
                                                 protected[FormCreation] val labelPos: Option[DSLSliderBuilder.LabelPosition],
                                                 protected[FormCreation] val effects: List[DSLSliderBuilder[T]#Form => Unit] = Nil,
                                                 protected[FormCreation] val layout: List[Constraints => Unit] = Nil)
-                                               (implicit val ord: Ordering[T])
     extends DSLSliderBuilder[T]
   {
 
     lazy val slider: Slider with UpdateInterface = new SliderUpd{
-      val values    = Stream.from(Int.MinValue).zip(domain.sorted).toMap
-      val valuesInv = values.map(_.swap)
+      lazy val values    = Stream.from(Int.MinValue).zip(domain).toMap
+      lazy val valuesInv = values.map(_.swap)
 
       lazy val stepsCount = domain.size
 
