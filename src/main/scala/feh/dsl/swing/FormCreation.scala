@@ -421,9 +421,9 @@ trait FormCreation {
   {
     import Ordered._
 
-    def maxValue(max: N)    = affectNumericModel(_.setMaximum(max))
-    def minValue(min: N)    = affectNumericModel(_.setMinimum(min))
-    def step(step: Number)  = affectNumericModel(_.setStepSize(step))
+    def maxValue(max: N)  = affectNumericModel(_.setMaximum(max))
+    def minValue(min: N)  = affectNumericModel(_.setMinimum(min))
+    def step(step: N)     = affectNumericModel(_.setStepSize(step.asInstanceOf[Number]))
 
     def affectNumericModel(effect: SpinnerNumberModel => Unit) = { effect(model); this}
 
