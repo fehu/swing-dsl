@@ -457,6 +457,8 @@ trait FormCreation {
         slider.updateForm()
         labelOpt.foreach(_.updateForm())
       }
+
+      effects.foreach(_(this))
     }
 
     lazy val valLabel = DSLLabelBuilder(get, static = false).form
@@ -488,8 +490,6 @@ trait FormCreation {
 
       min = sliderMin
       max = sliderMin + stepsCount - 1
-
-      effects.foreach(_(form))
 
       def updateForm(): Unit = { value = toSliderVal(get()) }
 
