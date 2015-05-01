@@ -2,19 +2,14 @@ package feh.dsl.swing
 
 import javax.swing.event.TableModelListener
 import javax.swing.table.{AbstractTableModel, TableModel}
-
 import feh.dsl.swing.swing.Spinner
-
 import scala.swing._
 import scala.swing.event.{SelectionChanged, ValueChanged, ButtonClicked}
 import scala.swing.Label
 import java.awt.Color
-import concurrent.duration.FiniteDuration
 import scala.collection.mutable
-import scala.collection.immutable.NumericRange
 import feh.util._
 import scala.swing.GridBagPanel.{Anchor, Fill}
-import scala.xml.NodeSeq
 import scala.concurrent.{ExecutionContext, Future}
 import javax.swing._
 import scala.reflect.ClassTag
@@ -447,10 +442,12 @@ trait FormCreation {
     val slider: Slider with UpdateInterface
 
     lazy val form: Form = new DSLSliderBuilder.SliderExt(slider, labelPos.map(_ => valLabel)){
-      contents ++= (labelPos match{
-        case None                                               => Seq(slider)
-        case Some(DSLSliderBuilder.LabelPosition.Left)  => Seq(valLabel, slider)
-        case Some(DSLSliderBuilder.LabelPosition.Right) => Seq(slider, valLabel)
+      layout ++= (labelPos match{
+        case None                                       => Seq(slider   -> sliderConstraints)
+        case Some(DSLSliderBuilder.LabelPosition.Left)  => Seq(valLabel -> labelConstraints,
+                                                               slider   -> sliderConstraints)
+        case Some(DSLSliderBuilder.LabelPosition.Right) => Seq(slider   -> sliderConstraints,
+                                                               valLabel -> labelConstraints)
       })
 
       def updateForm(): Unit = {
@@ -565,7 +562,11 @@ trait FormCreation {
     }
 
     abstract class SliderExt(val slider: Slider with UpdateInterface,
-                             val labelOpt: Option[Label with UpdateInterface]) extends FlowPanel with UpdateInterface
+                             val labelOpt: Option[Label with UpdateInterface]) extends GridBagPanel with UpdateInterface{
+      def sliderConstraints = new Constraints() .$$ {_.fill = Fill.Horizontal}
+                                                .$$ {_.weightx = 1}
+      def labelConstraints  = new Constraints() .$$ {_.weightx = 1}
+    }
 
 
   }
