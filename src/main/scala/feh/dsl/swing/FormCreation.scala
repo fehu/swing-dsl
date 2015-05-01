@@ -192,8 +192,14 @@ trait FormCreation {
       .right.map{ case (extr, c) => extr(get()).map(f)(c) }
   }
 
-  protected trait UpdateInterface{
+  protected[swing] trait UpdateInterface{
     def updateForm()
+  }
+
+  protected def updateIfPossible(c: Component): Unit = c match {
+    case upd: UpdateInterface => upd.updateForm()
+    case c: Container => c.contents.foreach(updateIfPossible)
+    case _ =>
   }
 
   object DefaultToString{
