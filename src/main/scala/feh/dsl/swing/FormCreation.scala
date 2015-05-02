@@ -455,11 +455,6 @@ trait FormCreation {
                                                                valLabel -> labelConstraints)
       })
 
-      def updateForm(): Unit = {
-        slider.updateForm()
-        labelOpt.foreach(_.updateForm())
-      }
-
       effects.foreach(_(this))
     }
 
@@ -571,6 +566,20 @@ trait FormCreation {
       def sliderConstraints = new Constraints() .$$ {_.fill = Fill.Horizontal}
                                                 .$$ {_.weightx = 1}
       def labelConstraints  = new Constraints() .$$ {_.weightx = 1}
+
+      def updateForm(): Unit = {
+        slider.updateForm()
+        labelOpt.foreach(_.updateForm())
+      }
+
+      override def lockForm(): Unit ={
+        slider.lockForm()
+        labelOpt.foreach(_.lockForm())
+      }
+      override def unlockForm(): Unit = {
+        slider.unlockForm()
+        labelOpt.foreach(_.unlockForm())
+      }
     }
 
 
