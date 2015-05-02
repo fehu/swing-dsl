@@ -57,8 +57,9 @@ trait SwingFrameAppCreation extends FormCreation{
     protected def panel = new PanelChooser
     protected def tabs(placement: scala.swing.Alignment.type => scala.swing.Alignment.Value,
                        layoutPolicy: TabbedPane.Layout.type => TabbedPane.Layout.Value,
-                       tabs: => Seq[LayoutElem]) =
-      TabbedLayout(placement(scala.swing.Alignment), layoutPolicy(TabbedPane.Layout), () => tabs)
+                       static: Boolean = true)
+                      (tabs: => Seq[LayoutElem]) =
+      TabbedLayout(placement(scala.swing.Alignment), layoutPolicy(TabbedPane.Layout), static, () => tabs)
     protected def scrollable[M <% BuildMeta](vert: BarPolicy.Value = BarPolicy.AsNeeded,
                                              hor: BarPolicy.Value = BarPolicy.AsNeeded)
                                             (content: M, id: String) = DSLScrollPaneBuilder(vert, hor, content, id)
@@ -142,18 +143,6 @@ trait SwingFrameAppCreation extends FormCreation{
       def withoutIds: Seq[UnplacedLayoutElem] = c.map(k => (k, noId): UnplacedLayoutElem)
     }
 
-    implicit class TryUpdateInterface(comp: Component){
-      def tryUpdate() = rec(_.updateForm()) (comp)
-      def tryLock()   = rec(_.lockForm())   (comp)
-      def tryUnlock() = rec(_.unlockForm()) (comp)
-
-      private def rec(f: UpdateInterface => Unit)(c: Component): Unit = c match {
-        case upd: UpdateInterface => f(upd)
-        case c: Container => c.contents.foreach(rec(f))
-        case _ =>
-      }
-    }
-
     class RegistringComponentAccess extends ComponentAccess{
       private val componentsMap = mutable.HashMap.empty[String, LayoutElem]
       private val delayedMap = mutable.HashMap.empty[String, LayoutElem]
@@ -183,6 +172,18 @@ trait SwingFrameAppCreation extends FormCreation{
     private def surroundHtml(in: NodeSeq) = in match{
       case <html>{_*}</html> => in
       case _ => <html>{in}</html>
+    }
+  }
+
+  implicit class TryUpdateInterface(comp: Component){
+    def tryUpdate() = rec(_.updateForm()) (comp)
+    def tryLock()   = rec(_.lockForm())   (comp)
+    def tryUnlock() = rec(_.unlockForm()) (comp)
+
+    private def rec(f: UpdateInterface => Unit)(c: Component): Unit = c match {
+      case upd: UpdateInterface => f(upd)
+      case c: Container => c.contents.foreach(rec(f))
+      case _ =>
     }
   }
 
@@ -250,6 +251,7 @@ trait SwingFrameAppCreation extends FormCreation{
 
   case class TabbedLayout(placement: scala.swing.Alignment.Value,
                           layoutPolicy: TabbedPane.Layout.Value,
+                          static: Boolean,
                           elems: () => Seq[LayoutElem],
                           layout: List[Constraints => Unit] = Nil,
                           effects: List[TabbedLayout#Comp => Unit] = Nil
@@ -262,7 +264,7 @@ trait SwingFrameAppCreation extends FormCreation{
       tabLayoutPolicy = layoutPolicy
       tabPlacement = placement
 
-      protected val pagesCache = mutable.HashMap.empty[LayoutElem, (Page, () => Unit)].withDefault{
+      protected lazy val pagesCache = mutable.HashMap.empty[LayoutElem, (Page, () => Unit)].withDefault{
         elem =>
           val c = elem.meta.component
           new Page(elem.id, c) -> (c match {
@@ -272,11 +274,26 @@ trait SwingFrameAppCreation extends FormCreation{
       }
 
       def updateForm() = {
-        pages.clear()
-        pages ++= elems().map(pagesCache.apply _ andThen(_._1))
-        pagesCache.foreach(_._2._2())
+        if(!static) {
+          pages.clear()
+          pages ++= elems().map(pagesCache.apply _ andThen(_._1))
+          pagesCache.foreach(_._2._2())
+        }
+        pages.foreach(_.content.tryUpdate())
       }
+
+      if(static) pages ++= elems().map(pagesCache.apply _ andThen(_._1))
+
       effects.foreach(_(this))
+
+      override def lockForm(): Unit   = {
+        super.lockForm()
+        pages.foreach(_.content.tryLock())
+      }
+      override def unlockForm(): Unit = {
+        super.unlockForm()
+        pages.foreach(_.content.tryUnlock())
+      }
     }
 
     def meta: BuildMeta = BuildMeta(component, layout: _*)
