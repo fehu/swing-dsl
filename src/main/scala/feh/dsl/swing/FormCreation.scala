@@ -193,13 +193,12 @@ trait FormCreation {
   }
 
   protected[swing] trait UpdateInterface{
-    def updateForm()
-  }
+    self: Component =>
 
-  protected def updateIfPossible(c: Component): Unit = c match {
-    case upd: UpdateInterface => upd.updateForm()
-    case c: Container => c.contents.foreach(updateIfPossible)
-    case _ =>
+    def updateForm()
+
+    def lockForm()    = this.enabled = false
+    def unlockForm()  = this.enabled = true
   }
 
   object DefaultToString{

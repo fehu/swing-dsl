@@ -142,6 +142,18 @@ trait SwingFrameAppCreation extends FormCreation{
       def withoutIds: Seq[UnplacedLayoutElem] = c.map(k => (k, noId): UnplacedLayoutElem)
     }
 
+    implicit class TryUpdateInterface(comp: Component){
+      def tryUpdate() = rec(_.updateForm()) (comp)
+      def tryLock()   = rec(_.lockForm())   (comp)
+      def tryUnlock() = rec(_.unlockForm()) (comp)
+
+      private def rec(f: UpdateInterface => Unit)(c: Component): Unit = c match {
+        case upd: UpdateInterface => f(upd)
+        case c: Container => c.contents.foreach(rec(f))
+        case _ =>
+      }
+    }
+
     class RegistringComponentAccess extends ComponentAccess{
       private val componentsMap = mutable.HashMap.empty[String, LayoutElem]
       private val delayedMap = mutable.HashMap.empty[String, LayoutElem]
