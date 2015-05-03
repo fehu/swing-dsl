@@ -339,7 +339,7 @@ trait FormCreation {
 
       def updateForm() = if(!static) {
         val g = get()
-        if(last != null && last != g){
+        if(last != g){
           last = g
           peer.asInstanceOf[JComboBox[T]].setModel(new DefaultComboBoxModel[T](g.asInstanceOf[Seq[AnyRef with T]].toArray))
         }
