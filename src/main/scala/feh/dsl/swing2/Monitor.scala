@@ -1,6 +1,7 @@
 package feh.dsl.swing2
 
-import scala.swing.{ProgressBar, TextComponent, Label, Component}
+import scala.swing._
+import scala.swing.event.ButtonClicked
 
 
 trait Monitoring[T, C <: Component]{
@@ -52,5 +53,21 @@ trait Control[T, C <: Component] extends Monitor[T, C]{
 object Control{
   def apply[T, C <: Component](c: C, v: Var[T])
                               (implicit m: Control[T, C]): Controlling[T, C] = m.build(c, v)
+  def apply[T, C <: Component](v: Var[T], c: C)
+                              (implicit m: Control[T, C]): Controlling[T, C] = m.build(c, v)
 
+  implicit object CheckboxControlForBoolean extends Control[Boolean, CheckBox]{
+    override def build(c: CheckBox, v: Var[Boolean]): Controlling[Boolean, CheckBox] = new Controlling[Boolean, CheckBox]{
+      def variable = v
+      def component = {
+        c.selected = v.get
+        v.onChange(c.selected = _)
+        c.reactions += {
+          case ButtonClicked(`c`) => v set c.selected
+        }
+        c
+      }
+
+    }
+  }
 }

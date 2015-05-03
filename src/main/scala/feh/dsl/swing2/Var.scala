@@ -22,14 +22,18 @@ object Var{
     private var v = initial
 
     def get = synchronized(v)
+
     def set(t: T) = {
       synchronized(v = t)
       updated(t)
     }
+
     def affect(f: (T) => T): Unit = {
       val x = synchronized(f(v) $$ (v = _))
       updated(x)
     }
+
+    def atomically[R](f: T => R): R = synchronized(f(v))
 
     protected val onUpdate = mutable.HashSet.empty[T => Unit]
     protected def updated(t: T) = onUpdate.foreach(_(t))
