@@ -9,7 +9,9 @@ trait Monitoring[T, C <: Component]{
   def variable: Var[T]
 }
 
-trait Controlling[T, C <: Component] extends Monitoring[T, C]
+trait Controlling[T, C <: Component] extends Monitoring[T, C]{
+  var onChange: T => Unit = t => {}
+}
 
 trait Monitor[T, C <: Component] {
   def build(_c: => C, v: Var[T]): Monitoring[T, C]
@@ -66,7 +68,10 @@ object Control{
         c.selected = v.get
         v.onChange(c.selected = _)
         c.reactions += {
-          case ButtonClicked(_) => v set c.selected
+          case ButtonClicked(_) =>
+            val sel = c.selected
+            v set sel
+            onChange(sel)
         }
         c
       }
