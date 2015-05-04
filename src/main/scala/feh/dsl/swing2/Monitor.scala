@@ -1,5 +1,7 @@
 package feh.dsl.swing2
 
+import javax.swing.table.DefaultTableModel
+
 import scala.swing._
 import scala.swing.event.ButtonClicked
 
@@ -10,7 +12,7 @@ trait Monitoring[T, C <: Component]{
 }
 
 trait Controlling[T, C <: Component] extends Monitoring[T, C]{
-  var onChange: T => Unit = t => {}
+  var onUserChange: T => Unit = t => {}
 }
 
 trait Monitor[T, C <: Component] {
@@ -22,6 +24,37 @@ object Monitor{
                               (implicit m: Monitor[T, C]): Monitoring[T, C] = m.build(c, v)
   def apply[T, C <: Component](v: Var[T], c: => C)
                               (implicit m: Monitor[T, C]): Monitoring[T, C] = m.build(c, v)
+
+  def custom[T, C <: Component](v: Var[T], _c: => C)
+                               (initial: C => Unit)
+                               (onVarChange: C => T => Unit): Monitoring[T, C] =
+    new Monitoring[T, C]{
+      lazy val component: C = {
+        val c = _c
+        initial(c)
+        v.onChange(onVarChange(c))
+        c
+      }
+
+      def variable: Var[T] = v
+    }
+
+  def forTable[T](v: Var[T], c: => Table)
+                 (columns: Seq[String], initial: T, prepareData: T => Array[Array[AnyRef]])
+                 (afterModelUpd: Table => Unit = _ => {}): Monitoring[T, Table] = {
+
+    def mkModel(t: T) = new DefaultTableModel(prepareData(t), columns.toArray[AnyRef]){
+      override def isCellEditable(row: Int, column: Int) = false
+    }
+
+    Monitor.custom(v, c){
+      c =>      c.model = mkModel(initial)
+                afterModelUpd(c)
+    }{
+      c => t => c.model = mkModel(t)
+                afterModelUpd(c)
+    }
+  }
 
   implicit def monitorForLabel[T]: Monitor[T, Label] = new Monitor[T, Label]{
     def build(c: => Label, v: Var[T]): Monitoring[T, Label] = buildTextMonitor(c, v)
@@ -60,6 +93,22 @@ object Control{
   def apply[T, C <: Component](v: Var[T], c: => C)
                               (implicit m: Control[T, C]): Controlling[T, C] = m.build(c, v)
 
+  def custom[T, C <: Component](v: Var[T], _c: => C)
+                               (initial: C => Unit)
+                               (onVarChange: C => T => Unit)
+                               (listenToUserChange: C => Unit): Controlling[T, C] =
+    new Controlling[T, C] {
+      lazy val component: C = {
+        val c = _c
+        initial(c)
+        v.onChange(onVarChange(c))
+        listenToUserChange(c)
+        c
+      }
+
+      def variable: Var[T] = ???
+    }
+
   implicit object CheckboxControlForBoolean extends Control[Boolean, CheckBox]{
     override def build(_c: => CheckBox, v: Var[Boolean]): Controlling[Boolean, CheckBox] = new Controlling[Boolean, CheckBox]{
       def variable = v
@@ -71,7 +120,7 @@ object Control{
           case ButtonClicked(_) =>
             val sel = c.selected
             v set sel
-            onChange(sel)
+            onUserChange(sel)
         }
         c
       }
