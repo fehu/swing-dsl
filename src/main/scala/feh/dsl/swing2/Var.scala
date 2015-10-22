@@ -14,11 +14,25 @@ trait Var[T] {
 object Var{
   type Unregister = () => Unit
 
-  def apply[T](initial: T): Var[T]    = new Impl[T](initial)
-  def readOnly[T](value:  T): Var[T]  = new ReadOnly[T](value)
-  def static[T](value:  T): Var[T]    = readOnly(value)
+  def apply[T](initial: T): Var[T]        = new Impl[T](initial)
+  def readOnly[T](value:  T): Var[T]      = new ReadOnly[T](value)
+  def static[T](value:  T): Var[T]        = readOnly(value)
+  def proxy[T](get: => T, set: T => Unit) = new Proxy[T](get, set)
 
-  class Impl[T](initial: T) extends Var[T]{
+  trait ImplCommon[T]{
+    self: Var[T] =>
+
+    protected val onUpdate = mutable.HashSet.empty[T => Unit]
+    protected def updated(t: T) = onUpdate.foreach(_(t))
+
+    def onChange(f: T => Unit): Var.Unregister = {
+      onUpdate += f
+      () => onUpdate -= f
+    }
+
+  }
+
+  class Impl[T](initial: T) extends Var[T] with ImplCommon[T]{
     private var v = initial
 
     def get = synchronized(v)
@@ -35,13 +49,6 @@ object Var{
 
     def atomically[R](f: T => R): R = synchronized(f(v))
 
-    protected val onUpdate = mutable.HashSet.empty[T => Unit]
-    protected def updated(t: T) = onUpdate.foreach(_(t))
-
-    def onChange(f: T => Unit): Var.Unregister = {
-      onUpdate += f
-      () => onUpdate -= f
-    }
   }
 
   class ReadOnly[T](value: T) extends Var[T]{
@@ -53,5 +60,17 @@ object Var{
     def onChange(f: T => Unit): Unregister = () => {}
   }
 
+  class Proxy[T](_get: => T, _set: T => Unit) extends Var[T] with ImplCommon[T]{
+    def get = synchronized(_get)
+    def set(t: T) = synchronized{
+      _set(t)
+      updated(t)
+    }
+
+    def affect(f: (T) => T): Unit = {
+      val x = synchronized(f(_get) $$ _set)
+      updated(x)
+    }
+  }
 
 }
