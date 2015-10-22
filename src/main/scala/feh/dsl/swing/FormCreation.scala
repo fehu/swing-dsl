@@ -4,7 +4,7 @@ import javax.swing.event.TableModelListener
 import javax.swing.table.{AbstractTableModel, TableModel}
 import feh.dsl.swing.swing.Spinner
 import scala.swing._
-import scala.swing.event.{SelectionChanged, ValueChanged, ButtonClicked}
+import scala.swing.event.{EditDone, SelectionChanged, ValueChanged, ButtonClicked}
 import scala.swing.Label
 import java.awt.Color
 import scala.collection.mutable
@@ -15,26 +15,30 @@ import javax.swing._
 import scala.reflect.ClassTag
 
 
-object FormCreation{
+object FormCreation extends FormCreation{
   type Constraints = GridBagPanel#Constraints
+
+  object DSL extends FormCreationDSL{
+    def updateForms(): Unit = ???
+  }
 }
 import FormCreation._
 
 trait FormCreation {
 
   protected trait FormCreationDSL{
-    protected def monitorFor[K, V](get: => Map[K, V])(implicit chooser:  (=> Map[K, V]) => MapMonitorComponentChooser[K, V]) = chooser(get)
-    protected def monitorFor[T](get: => T)(implicit chooser:  (=> T) => MonitorComponentChooser[T]) = chooser(get)
-    protected def monitorForSeq[T](get: => Seq[T])(implicit chooser:  (=> Seq[T]) => SeqMonitorComponentChooser[T]) = chooser(get)
-    protected def controlFor[T](get: => T)(set: T => Unit)(implicit chooser: (=> T, T => Unit) => ControlComponentChooser[T]) = chooser(get, set)
-    protected def controlGivenDomain[T](get: => T)(set: T => Unit)(implicit chooser: (=> T, T => Unit) => WithDomainControlComponentChooser[T]) = chooser(get, set)
-    protected def controlForSeq[T](get: => Seq[T], static: Boolean = false)(implicit chooser: (=> Seq[T], Boolean) => SeqControlComponentChooser[T]) = chooser(get, static)
-    protected def controlForNumeric[N](get: => N)(set: N => Unit) // todo: sould it exist?
+    def monitorFor[K, V](get: => Map[K, V])(implicit chooser:  (=> Map[K, V]) => MapMonitorComponentChooser[K, V]) = chooser(get)
+    def monitorFor[T](get: => T)(implicit chooser:  (=> T) => MonitorComponentChooser[T]) = chooser(get)
+    def monitorForSeq[T](get: => Seq[T])(implicit chooser:  (=> Seq[T]) => SeqMonitorComponentChooser[T]) = chooser(get)
+    def controlFor[T](get: => T)(set: T => Unit)(implicit chooser: (=> T, T => Unit) => ControlComponentChooser[T]) = chooser(get, set)
+    def controlGivenDomain[T](get: => T)(set: T => Unit)(implicit chooser: (=> T, T => Unit) => WithDomainControlComponentChooser[T]) = chooser(get, set)
+    def controlForSeq[T](get: => Seq[T], static: Boolean = false)(implicit chooser: (=> Seq[T], Boolean) => SeqControlComponentChooser[T]) = chooser(get, static)
+    def controlForNumeric[N](get: => N)(set: N => Unit) // todo: sould it exist?
                                       (implicit chooser: (=> N, N => Unit) => NumericControlComponentChooser[N], num: Numeric[N]) = chooser(get, set)   
-    protected def controlForOrdered[T](get: => T)(set: T => Unit) // todo: sould it exist?
+    def controlForOrdered[T](get: => T)(set: T => Unit) // todo: sould it exist?
                                       (implicit chooser: (=> T, T => Unit) => OrderedControlComponentChooser[T], ordering: Ordering[T]) = chooser(get, set)
-    protected def triggerFor(action: => Unit)(implicit chooser: (=> Unit) => TriggerComponentChooser) = chooser(action)
-    protected def toggleFor(on: => Unit, off: => Unit)(implicit chooser: (=> Unit, => Unit) => ToggleComponentChooser) = chooser(on, off)
+    def triggerFor(action: => Unit)(implicit chooser: (=> Unit) => TriggerComponentChooser) = chooser(action)
+    def toggleFor(on: => Unit, off: => Unit)(implicit chooser: (=> Unit, => Unit) => ToggleComponentChooser) = chooser(on, off)
 
     def updateForms()
   }
@@ -89,7 +93,9 @@ trait FormCreation {
   protected class ControlComponentChooser[T](_get: => T, val set: T => Unit){
     def get: T = _get
 
-    def textForm(implicit tBuilder: String => T) = new DSLTextFormBuilder(get.lifted, set)
+    def textForm(implicit tBuilder: String => T): DSLTextFormBuilder[T] = new DSLTextFormBuilder(get.lifted, set)
+    def textForm(verifier: String => Boolean)(implicit tBuilder: String => T): DSLTextFormBuilder[T] =
+      new DSLTextFormBuilder(get.lifted, set, verify = verifier)
     def textArea = new DSLTextAreaBuilder(get.lifted) // todo: set
 
   }
@@ -267,6 +273,7 @@ trait FormCreation {
                                              protected[FormCreation] val effects: List[DSLTextFormBuilder[_]#Form => Unit] = Nil,
                                              protected[FormCreation] val layout: List[Constraints => Unit] = Nil,
                                              protected[FormCreation] val static: Boolean = false,
+                                             protected[FormCreation] val verify: String => Boolean = _ => true,
                                              protected[FormCreation] val extractString: T => String = DefaultToString.nullsafe[T])
                                             (implicit tBuilder: String => T) extends DSLFormBuilder[T]{
                                              // todo: set value
@@ -277,12 +284,15 @@ trait FormCreation {
       def updateForm(): Unit = if(!static){
         text = extractString(get())
       }
+
+      shouldYieldFocus = verify
+
       effects.foreach(_(this))
 
       Option(set).foreach{ s =>
         listenTo(this)
         reactions += {
-          case ValueChanged(_) => s(text)
+          case EditDone(_) => s(text)
         }
       }
     }
