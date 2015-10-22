@@ -2,7 +2,7 @@ organization  := "feh.dsl"
 
 name := "swing"
 
-version := "1.4"
+version := "1.5-SNAPSHOT"
 
 scalaVersion := "2.11.6"
 

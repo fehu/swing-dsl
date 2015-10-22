@@ -93,10 +93,11 @@ object Control{
   def apply[T, C <: Component](v: Var[T], c: => C)
                               (implicit m: Control[T, C]): Controlling[T, C] = m.build(c, v)
 
-  def custom[T, C <: Component](v: Var[T], _c: => C)
-                               (initial: C => Unit)
-                               (onVarChange: C => T => Unit)
-                               (listenToUserChange: C => Unit): Controlling[T, C] =
+  def custom[T, C <: Component]( v: Var[T]
+                               , _c: => C
+                               , initial: C => Unit
+                               , onVarChange: C => T => Unit
+                               , listenToUserChange: C => Unit): Controlling[T, C] =
     new Controlling[T, C] {
       lazy val component: C = {
         val c = _c
